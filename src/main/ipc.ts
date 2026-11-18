@@ -38,12 +38,14 @@ interface Ctx {
   sender: WebContents
   stream: (streamId: string | undefined) => ((t: string) => void) | undefined
 }
-interface Handler<I, O> {
-  input: z.ZodType<I>
-  fn: (input: I, ctx: Ctx) => Promise<O> | O
+// In = what callers send (zod input type), P = what the handler gets after parsing.
+interface Handler<In, P, O> {
+  input: z.ZodType<P>
+  fn: (input: P, ctx: Ctx) => Promise<O> | O
+  _in?: In
 }
-function h<S extends z.ZodType, O>(input: S, fn: (input: z.infer<S>, ctx: Ctx) => Promise<O> | O): Handler<z.infer<S>, O> {
-  return { input: input as unknown as z.ZodType<z.infer<S>>, fn }
+function h<S extends z.ZodType, O>(input: S, fn: (input: z.output<S>, ctx: Ctx) => Promise<O> | O): Handler<z.input<S>, z.output<S>, O> {
+  return { input: input as unknown as z.ZodType<z.output<S>>, fn }
 }
 const none = z.undefined().or(z.null()).or(z.object({}).strict()).optional()
 const id = z.string().min(1)
@@ -251,16 +253,17 @@ export const handlers = {
     review: h(z.object({ cardId: id, rating: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }), (i) => repo.applyReview(i.cardId, i.rating, 'flashcard')),
     reviewState: h(z.object({ cardId: id }), (i) => repo.getReviewState(i.cardId)),
     restoreReview: h(
-      z.object({ cardId: id, state: z.object({ ease: z.number(), interval: z.number(), repetitions: z.number(), lapses: z.number(), due: z.string(), last_reviewed: z.string().nullable() }).nullable() }),
+      z.object({
+        cardId: id,
+        state: z
+          .object({ ease: z.number(), interval: z.number(), repetitions: z.number(), lapses: z.number(), due: z.string(), last_reviewed: z.string().nullable(), difficulty: z.number().optional(), sr_state: z.number().optional(), good_count: z.number().optional() })
+          .nullable()
+      }),
       async (i) => {
         const { getDb } = await import('./db')
         const d = getDb()
-        if (i.state) {
-          d.prepare(
-            `INSERT INTO review_state VALUES (@card_id, @ease, @interval, @repetitions, @lapses, @due, @last_reviewed)
-             ON CONFLICT(card_id) DO UPDATE SET ease=@ease, interval=@interval, repetitions=@repetitions, lapses=@lapses, due=@due, last_reviewed=@last_reviewed`
-          ).run({ card_id: i.cardId, ...i.state })
-        } else d.prepare('DELETE FROM review_state WHERE card_id = ?').run(i.cardId)
+        if (i.state) repo.writeReviewState({ difficulty: 0.6, sr_state: 0, good_count: 0, ...i.state, card_id: i.cardId })
+        else d.prepare('DELETE FROM review_state WHERE card_id = ?').run(i.cardId)
         d.prepare("DELETE FROM review_log WHERE id = (SELECT MAX(id) FROM review_log WHERE card_id = ? AND source = 'flashcard')").run(i.cardId)
         return true
       }
@@ -297,7 +300,7 @@ export const handlers = {
       repo.linkNoteDeck(note.id, deck.id, true)
       const job = await gen.generateCards(
         { sources: { files: [], topic: '', text: i.text, noteIds: [] }, deckId: deck.id, presetId: presets.getPresetByKey('cards.standard')?.id, format: 'question_answer', cardType: 'regular', language: '', instructions: 'Make 3–6 cards that test the key ideas.', count: 5 },
-        { signal: new AbortController().signal, progress: () => {}, delta: () => {} }
+        { signal: new AbortController().signal, progress: () => {}, delta: () => {}, meta: () => {} }
       )
       const created = repo.createCards(job.cards.map(({ key: _k, ...c }) => ({ ...c, deck_id: deck.id, source: { type: 'note' as const, noteId: note.id, section: gen.bestSection(note.content, i.text) } })))
       return { deckId: deck.id, cardIds: created.map((c) => c.id) }
@@ -480,7 +483,7 @@ export const handlers = {
 // ---------------------------------------------------------------------------
 // Types for the renderer
 
-type HandlerFn<T> = T extends Handler<infer I, infer O> ? (undefined extends I ? (input?: I) => Promise<Awaited<O>> : (input: I) => Promise<Awaited<O>>) : never
+type HandlerFn<T> = T extends Handler<infer I, infer _P, infer O> ? (undefined extends I ? (input?: I) => Promise<Awaited<O>> : (input: I) => Promise<Awaited<O>>) : never
 export type StudywiseApi = { [D in keyof typeof handlers]: { [M in keyof (typeof handlers)[D]]: HandlerFn<(typeof handlers)[D][M]> } }
 
 export function channelList(): string[] {
@@ -494,7 +497,7 @@ export function setAfterCall(fn: (channel: string) => void): void {
 
 export function registerIpc(): void {
   for (const [domain, methods] of Object.entries(handlers)) {
-    for (const [method, handler] of Object.entries(methods as Record<string, Handler<unknown, unknown>>)) {
+    for (const [method, handler] of Object.entries(methods as Record<string, Handler<unknown, unknown, unknown>>)) {
       const channel = `sw:${domain}.${method}`
       ipcMain.handle(channel, async (event, payload) => {
         const parsed = handler.input.safeParse(payload)

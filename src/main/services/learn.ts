@@ -491,17 +491,8 @@ export function overrideAttempt(attemptId: string): Mark {
   const d = getDb()
   d.transaction(() => {
     for (const [cardId, state] of Object.entries(m.prev ?? {})) {
-      if (state) {
-        d.prepare('UPDATE review_state SET ease=?, interval=?, repetitions=?, lapses=?, due=?, last_reviewed=? WHERE card_id=?').run(
-          state.ease,
-          state.interval,
-          state.repetitions,
-          state.lapses,
-          state.due,
-          state.last_reviewed,
-          cardId
-        )
-      } else d.prepare('DELETE FROM review_state WHERE card_id = ?').run(cardId)
+      if (state) repo.writeReviewState({ ...state, card_id: cardId })
+      else d.prepare('DELETE FROM review_state WHERE card_id = ?').run(cardId)
       repo.applyReview(cardId, 3, 'learn')
     }
     d.prepare("UPDATE answer_attempts SET overridden = 1, verdict = 'correct', score = 10 WHERE id = ?").run(attemptId)

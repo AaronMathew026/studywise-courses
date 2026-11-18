@@ -165,7 +165,10 @@ export const ReviewState = z.object({
   repetitions: z.number(),
   lapses: z.number(),
   due: z.string(),
-  last_reviewed: z.string().nullable()
+  last_reviewed: z.string().nullable(),
+  difficulty: z.number().default(0.6),
+  sr_state: z.number().int().default(0),
+  good_count: z.number().int().default(0)
 })
 export type ReviewState = z.infer<typeof ReviewState>
 
@@ -199,6 +202,7 @@ export interface JobInfo {
   finishedAt: string | null
   error: string | null
   result: unknown
+  meta: Record<string, unknown>
 }
 
 export interface ClaudeStatus {

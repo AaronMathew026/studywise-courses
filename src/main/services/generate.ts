@@ -9,7 +9,8 @@ import type { JobContext } from '../jobs'
 import * as repo from '../db/repo'
 import { parseStudySmarterText, validateCards, dedupeCards, normalizeQuestion, type CardWarning } from '@shared/ssText'
 import type { GeneratedCard } from '@shared/questions'
-import type { CardFormat, CardInput, CardSource } from '@shared/types'
+import type { CardFormat, CardSource } from '@shared/types'
+import type { CardInput as CardInputSchema } from '@shared/types'
 
 export const SourceSpec = z.object({
   files: z.array(z.string()).default([]),
@@ -46,7 +47,8 @@ export const GenerateCardsInput = z.object({
 })
 export type GenerateCardsInput = z.infer<typeof GenerateCardsInput>
 
-export interface PreviewCard extends Omit<CardInput, 'deck_id'> {
+type CardOut = z.output<typeof CardInputSchema>
+export interface PreviewCard extends Omit<CardOut, 'deck_id'> {
   key: string
   front: string
   back: string
@@ -106,6 +108,7 @@ export async function generateNotes(input: GenerateNotesInput, ctx: JobContext):
     input.title || (s.files[0] ? basename(s.files[0], extname(s.files[0])) : s.noteIds[0] ? repo.getNote(s.noteIds[0]).title : s.topic || 'New note')
   const note = repo.createNote({ title: linking && !input.title ? `Linking all ${title} texts` : title, module: input.module, type: input.type, week: input.week, folder_id: input.folderId ?? null })
   if (input.deckId) repo.linkNoteDeck(note.id, input.deckId, true)
+  ctx.meta({ noteId: note.id })
   ctx.progress('Preparing sources…')
   const work = mkdtempSync(join(tmpdir(), 'studywise-src-'))
   const instructions = [input.instructions, LENGTH_TEXT[input.length], input.level ? `Pitch it at ${input.level} level.` : ''].filter(Boolean).join('\n')
@@ -206,7 +209,8 @@ export function fromGenerated(g: GeneratedCard, format: CardFormat, source: Card
     tags: g.tags ?? [],
     hints: g.hints ?? [],
     explanation: '',
-    source
+    source,
+    required_points: null
   }
 }
 

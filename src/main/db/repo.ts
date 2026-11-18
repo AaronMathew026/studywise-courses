@@ -2,7 +2,8 @@ import { getDb, uid, now, json } from './index'
 import type { Card, CardInput, Deck, Folder, Note, ReviewState, ModelChoice, LearnSettings, Thresholds, AiCall } from '@shared/types'
 import { CardInput as CardInputSchema } from '@shared/types'
 import { parseRequiredPoints, countBlanks } from '@shared/ssText'
-import { newSm2State, review as sm2Review, isDue, masteryOf } from '@shared/sm2'
+import { isDue, masteryOf } from '@shared/sm2'
+import { schedule, newState, withDefaults, DEFAULT_SCHEDULER, type SchedulerKind } from '@shared/scheduler'
 
 // ---------- settings ----------
 export function getSetting<T>(key: string, fallback: T): T {
@@ -320,20 +321,42 @@ export function noteSection(noteId: string, section?: string): string {
   return lines.slice(start, end).join('\n')
 }
 
-// ---------- review / SM-2 ----------
+// ---------- review / spaced repetition ----------
+export function writeReviewState(r: ReviewState): void {
+  const full = { ...r, difficulty: r.difficulty ?? 0.6, sr_state: r.sr_state ?? 0, good_count: r.good_count ?? 0 }
+  getDb()
+    .prepare(
+      `INSERT INTO review_state (card_id, ease, interval, repetitions, lapses, due, last_reviewed, difficulty, sr_state, good_count)
+       VALUES (@card_id, @ease, @interval, @repetitions, @lapses, @due, @last_reviewed, @difficulty, @sr_state, @good_count)
+       ON CONFLICT(card_id) DO UPDATE SET ease=@ease, interval=@interval, repetitions=@repetitions, lapses=@lapses, due=@due,
+       last_reviewed=@last_reviewed, difficulty=@difficulty, sr_state=@sr_state, good_count=@good_count`
+    )
+    .run(full)
+}
 export function getReviewState(cardId: string): ReviewState | null {
   return (getDb().prepare('SELECT * FROM review_state WHERE card_id = ?').get(cardId) as ReviewState | undefined) ?? null
 }
 export function applyReview(cardId: string, rating: 1 | 2 | 3 | 4, source: 'flashcard' | 'learn', at = new Date()): ReviewState {
   const card = getCard(cardId)
-  const cur = getReviewState(cardId) ?? { card_id: cardId, ...newSm2State(at) }
-  const next = { card_id: cardId, ...sm2Review(cur, rating, at) }
+  const existing = getReviewState(cardId)
+  const cur = existing ? withDefaults(existing) : newState(at)
+  const kind = getSetting<SchedulerKind>('review.scheduler', DEFAULT_SCHEDULER)
+  const s = schedule(kind, cur, rating, at)
+  const next = {
+    card_id: cardId,
+    ease: s.ease,
+    interval: s.interval,
+    repetitions: s.repetitions,
+    lapses: s.lapses,
+    due: s.due,
+    last_reviewed: s.last_reviewed,
+    difficulty: s.difficulty,
+    sr_state: s.sr_state,
+    good_count: s.good_count
+  }
   const d = getDb()
   d.transaction(() => {
-    d.prepare(
-      `INSERT INTO review_state VALUES (@card_id, @ease, @interval, @repetitions, @lapses, @due, @last_reviewed)
-       ON CONFLICT(card_id) DO UPDATE SET ease=@ease, interval=@interval, repetitions=@repetitions, lapses=@lapses, due=@due, last_reviewed=@last_reviewed`
-    ).run(next)
+    writeReviewState(next)
     d.prepare('INSERT INTO review_log (card_id, deck_id, rating, source, at) VALUES (?, ?, ?, ?, ?)').run(cardId, card.deck_id, rating, source, at.toISOString())
   })()
   return next
@@ -402,8 +425,8 @@ export function deckStats(deckId: string) {
     .map((c) => {
       const s = states.get(c.id)
       const w = wm.get(c.id)
-      const score = (s?.lapses ?? 0) * 2 + (s ? 2.5 - s.ease : 0) * 4 + (w ? (w.wrong / Math.max(1, w.total)) * 3 : 0)
-      return { card: c, score, lapses: s?.lapses ?? 0, ease: s?.ease ?? null }
+      const score = (s?.lapses ?? 0) * 2 + (s ? Math.max(0, (s.difficulty ?? 0.6) - 0.45) * 6 + Math.max(0, 2.5 - s.ease) * 2 : 0) + (w ? (w.wrong / Math.max(1, w.total)) * 3 : 0)
+      return { card: c, score, lapses: s?.lapses ?? 0, ease: s?.ease ?? null, difficulty: s?.difficulty ?? null }
     })
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score)

@@ -10,6 +10,8 @@ export interface JobContext {
   progress: (msg: string) => void
   /** Streamed text for the renderer (e.g. notes appearing in the editor). */
   delta: (text: string) => void
+  /** Small facts the UI needs early, e.g. the id of the note being written. */
+  meta: (m: Record<string, unknown>) => void
 }
 
 type Listener = (ev: { type: 'update'; job: JobInfo } | { type: 'delta'; jobId: string; text: string }) => void
@@ -40,6 +42,7 @@ export function startJob<T>(kind: JobInfo['kind'], title: string, run: (ctx: Job
     finishedAt: null,
     error: null,
     result: null,
+    meta: {},
     controller
   }
   jobs.set(job.id, job)
@@ -50,7 +53,11 @@ export function startJob<T>(kind: JobInfo['kind'], title: string, run: (ctx: Job
       job.progress = msg
       emit({ type: 'update', job: publicInfo(job) })
     },
-    delta: (text) => emit({ type: 'delta', jobId: job.id, text })
+    delta: (text) => emit({ type: 'delta', jobId: job.id, text }),
+    meta: (m) => {
+      job.meta = { ...job.meta, ...m }
+      emit({ type: 'update', job: publicInfo(job) })
+    }
   }
   run(ctx)
     .then((result) => {

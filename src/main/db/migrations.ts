@@ -187,6 +187,11 @@ export const MIGRATIONS: string[] = [
     error TEXT,
     created_at TEXT NOT NULL
   );
+  `,
+  /* 2: difficulty-based scheduler fields */ `
+  ALTER TABLE review_state ADD COLUMN difficulty REAL NOT NULL DEFAULT 0.6;
+  ALTER TABLE review_state ADD COLUMN sr_state INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE review_state ADD COLUMN good_count INTEGER NOT NULL DEFAULT 0;
   `
 ]
 
