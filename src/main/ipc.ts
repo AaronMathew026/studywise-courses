@@ -1,0 +1,524 @@
+import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { join, extname, basename } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { z } from 'zod'
+import * as repo from './db/repo'
+import * as presets from './ai/presets'
+import * as models from './ai/models'
+import { runAI, renderPrompt, friendlyError, aiQueue, isMock } from './ai'
+import { detectClaude, getClaudeStatus, setOverridePath } from './ai/claudePath'
+import { startJob, cancelJob, listJobs, clearFinishedJobs, getJob } from './jobs'
+import * as gen from './services/generate'
+import * as learn from './services/learn'
+import * as explain from './services/explain'
+import * as io from './importexport'
+import { backupLibrary, restoreLibrary } from './backup'
+import { paths } from './paths'
+import {
+  CardInput,
+  CardFormat,
+  CardKind,
+  McOption,
+  CardSource,
+  ModelChoice,
+  LearnSettings,
+  Thresholds,
+  CustomAction,
+  OutputMode
+} from '@shared/types'
+import { TASKS, TASK_INFO, type TaskId } from '@shared/tasks'
+import { validateCards } from '@shared/ssText'
+import type { LearnQuestion, LearnAnswer } from '@shared/questions'
+
+// ---------------------------------------------------------------------------
+// Handler helper: every IPC payload goes through a zod schema.
+
+interface Ctx {
+  sender: WebContents
+  stream: (streamId: string | undefined) => ((t: string) => void) | undefined
+}
+interface Handler<I, O> {
+  input: z.ZodType<I>
+  fn: (input: I, ctx: Ctx) => Promise<O> | O
+}
+function h<S extends z.ZodType, O>(input: S, fn: (input: z.infer<S>, ctx: Ctx) => Promise<O> | O): Handler<z.infer<S>, O> {
+  return { input: input as unknown as z.ZodType<z.infer<S>>, fn }
+}
+const none = z.undefined().or(z.null()).or(z.object({}).strict()).optional()
+const id = z.string().min(1)
+const streamId = z.string().optional()
+
+const CardPatch = CardInput.partial().extend({
+  format: CardFormat.optional(),
+  kind: CardKind.optional(),
+  options: z.array(McOption).optional(),
+  source: CardSource.nullable().optional()
+})
+
+const ExplainCtx = z.object({
+  cardId: z.string().nullable().optional(),
+  noteId: z.string().nullable().optional(),
+  selection: z.string().nullable().optional(),
+  question: z.string().nullable().optional(),
+  userAnswer: z.string().nullable().optional(),
+  expectedAnswer: z.string().nullable().optional(),
+  deckId: z.string().nullable().optional()
+})
+
+// Learn questions/answers are produced by us; validate the outer shape.
+const LearnQuestionSchema = z.object({
+  id: z.string(),
+  type: z.enum(['read_understand', 'multiple_choice', 'free_answer', 'true_false', 'match_pairs', 'categorize', 'fill_blank', 'choice_blank']),
+  card_id: z.string(),
+  card_ids: z.array(z.string()),
+  payload: z.record(z.string(), z.unknown()),
+  cached: z.boolean()
+}) as unknown as z.ZodType<LearnQuestion>
+const LearnAnswerSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('read_understand') }),
+  z.object({ type: z.literal('multiple_choice'), index: z.number().int() }),
+  z.object({ type: z.literal('true_false'), value: z.boolean() }),
+  z.object({ type: z.literal('free_answer'), text: z.string().max(20000) }),
+  z.object({ type: z.literal('match_pairs'), mapping: z.record(z.string(), z.number()) }),
+  z.object({ type: z.literal('categorize'), assignments: z.record(z.string(), z.string()) }),
+  z.object({ type: z.literal('fill_blank'), values: z.array(z.string()) }),
+  z.object({ type: z.literal('choice_blank'), values: z.array(z.string()) })
+]) as unknown as z.ZodType<LearnAnswer>
+
+const PreviewCardSchema = z.object({
+  key: z.string().optional(),
+  format: CardFormat.default('term_definition'),
+  kind: CardKind.default('regular'),
+  front: z.string(),
+  back: z.string(),
+  language: z.string().nullable().optional(),
+  options: z.array(McOption).default([]),
+  cloze_answers: z.array(z.string()).default([]),
+  tags: z.array(z.string()).default([]),
+  hints: z.array(z.string()).default([]),
+  explanation: z.string().default(''),
+  source: CardSource.nullable().optional(),
+  required_points: z.number().nullable().optional()
+})
+
+async function pickFiles(win: BrowserWindow | null, filters: Electron.FileFilter[], multi = true): Promise<string[]> {
+  const opts: Electron.OpenDialogOptions = { properties: multi ? ['openFile', 'multiSelections'] : ['openFile'], filters }
+  const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+  return r.canceled ? [] : r.filePaths
+}
+async function pickSave(win: BrowserWindow | null, defaultPath: string, filters: Electron.FileFilter[]): Promise<string | null> {
+  const opts: Electron.SaveDialogOptions = { defaultPath, filters }
+  const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
+  return r.canceled || !r.filePath ? null : r.filePath
+}
+const winOf = (ctx: Ctx) => BrowserWindow.fromWebContents(ctx.sender)
+const safeName = (s: string) => s.replace(/[/\\:*?"<>|]+/g, '-').trim() || 'export'
+
+async function importCardsFromFile(file: string, deckId: string): Promise<number> {
+  const ext = extname(file).toLowerCase()
+  let cards: z.input<typeof CardInput>[]
+  if (ext === '.xlsx') cards = await io.cardsFromXlsx(file, deckId)
+  else if (ext === '.csv') cards = io.cardsFromCsv(readFileSync(file, 'utf8'), deckId)
+  else if (ext === '.json') {
+    const j = io.DeckJson.parse(JSON.parse(readFileSync(file, 'utf8')))
+    cards = j.cards.map((c) => ({ ...c, deck_id: deckId }))
+  } else cards = io.cardsFromStudySmarterText(readFileSync(file, 'utf8'), deckId)
+  return repo.createCards(cards).length
+}
+
+// ---------------------------------------------------------------------------
+
+export const handlers = {
+  app: {
+    info: h(none, () => ({
+      version: app.getVersion(),
+      name: app.getName(),
+      userData: paths.userData,
+      electron: process.versions.electron,
+      mock: isMock(),
+      platform: process.platform
+    })),
+    showDataFolder: h(none, () => shell.openPath(paths.userData).then(() => true)),
+    openExternal: h(z.object({ url: z.string().url() }), ({ url }) => {
+      if (!/^https:\/\//.test(url)) throw new Error('Only https links can be opened')
+      return shell.openExternal(url).then(() => true)
+    }),
+    backup: h(none, async (_i, ctx) => {
+      const file = await pickSave(winOf(ctx), `Studywise backup ${new Date().toISOString().slice(0, 10)}.zip`, [{ name: 'Zip', extensions: ['zip'] }])
+      if (!file) return null
+      await backupLibrary(file)
+      return file
+    }),
+    restore: h(none, async (_i, ctx) => {
+      const [file] = await pickFiles(winOf(ctx), [{ name: 'Studywise backup', extensions: ['zip'] }], false)
+      if (!file) return false
+      const win = winOf(ctx)
+      const ok = await dialog.showMessageBox(win!, {
+        type: 'warning',
+        buttons: ['Restore and Relaunch', 'Cancel'],
+        defaultId: 1,
+        message: 'Replace your whole library with this backup?',
+        detail: 'Your current decks, notes and settings will be replaced. Studywise will relaunch.'
+      })
+      if (ok.response !== 0) return false
+      await restoreLibrary(file)
+      app.relaunch()
+      app.exit(0)
+      return true
+    }),
+    saveAttachment: h(z.object({ name: z.string(), data: z.instanceof(Uint8Array) }), ({ name, data }) => {
+      mkdirSync(paths.attachments, { recursive: true })
+      const fname = `${randomUUID()}${extname(name).toLowerCase() || '.png'}`
+      writeFileSync(join(paths.attachments, fname), data)
+      return `studywise-file://attachments/${fname}`
+    }),
+    pickFiles: h(z.object({ kind: z.enum(['sources', 'cards', 'notes']) }), ({ kind }, ctx) => {
+      const filters: Record<string, Electron.FileFilter[]> = {
+        sources: [{ name: 'Documents', extensions: ['pdf', 'docx', 'pptx', 'txt', 'md', 'markdown'] }],
+        cards: [{ name: 'Cards', extensions: ['txt', 'xlsx', 'csv', 'json'] }],
+        notes: [{ name: 'Notes', extensions: ['md', 'markdown', 'txt', 'zip', 'pdf'] }]
+      }
+      return pickFiles(winOf(ctx), filters[kind])
+    })
+  },
+
+  settings: {
+    all: h(none, () => repo.allSettings()),
+    set: h(z.object({ key: z.string().regex(/^[\w.]+$/), value: z.unknown() }), ({ key, value }) => {
+      repo.setSetting(key, value)
+      if (key === 'ai.concurrency') aiQueue.setLimit(Number(value) || 3)
+      return true
+    })
+  },
+
+  claude: {
+    status: h(none, () => getClaudeStatus()),
+    recheck: h(none, () => detectClaude({ force: true })),
+    choose: h(none, async (_i, ctx) => {
+      const [file] = await pickFiles(winOf(ctx), [], false)
+      if (!file) return getClaudeStatus()
+      repo.setSetting('claude.overridePath', file)
+      setOverridePath(file)
+      return detectClaude()
+    }),
+    clearOverride: h(none, () => {
+      repo.setSetting('claude.overridePath', null)
+      setOverridePath(null)
+      return detectClaude()
+    })
+  },
+
+  folders: {
+    list: h(z.object({ kind: z.enum(['deck', 'note']).optional() }).optional(), (i) => repo.listFolders(i?.kind)),
+    create: h(z.object({ name: z.string().min(1), kind: z.enum(['deck', 'note']), parent_id: z.string().nullable().optional() }), (i) => repo.createFolder(i.name, i.kind, i.parent_id ?? null)),
+    rename: h(z.object({ id, name: z.string().min(1) }), (i) => repo.renameFolder(i.id, i.name)),
+    delete: h(z.object({ id }), (i) => repo.deleteFolder(i.id))
+  },
+
+  decks: {
+    list: h(none, () => repo.listDecks()),
+    get: h(z.object({ id }), (i) => repo.getDeck(i.id)),
+    create: h(z.object({ name: z.string().min(1), folder_id: z.string().nullable().optional(), description: z.string().optional() }), (i) => repo.createDeck(i)),
+    update: h(
+      z.object({
+        id,
+        patch: z.object({
+          name: z.string().min(1).optional(),
+          folder_id: z.string().nullable().optional(),
+          description: z.string().optional(),
+          extra_instructions: z.string().optional(),
+          model_overrides: z.record(z.string(), ModelChoice).optional(),
+          learn_settings: LearnSettings.nullable().optional(),
+          thresholds: Thresholds.nullable().optional()
+        })
+      }),
+      (i) => repo.updateDeck(i.id, i.patch)
+    ),
+    delete: h(z.object({ id }), (i) => repo.deleteDeck(i.id)),
+    stats: h(z.object({ id }), (i) => repo.deckStats(i.id)),
+    due: h(z.object({ id }), (i) => repo.dueCards(i.id))
+  },
+
+  cards: {
+    list: h(z.object({ deckId: id }), (i) => repo.listCards(i.deckId)),
+    get: h(z.object({ id }), (i) => repo.getCard(i.id)),
+    create: h(z.object({ cards: z.array(CardInput).max(5000) }), (i) => repo.createCards(i.cards)),
+    update: h(z.object({ id, patch: CardPatch }), (i) => repo.updateCard(i.id, i.patch)),
+    delete: h(z.object({ ids: z.array(id) }), (i) => repo.deleteCards(i.ids)),
+    move: h(z.object({ ids: z.array(id), deckId: id }), (i) => repo.moveCards(i.ids, i.deckId)),
+    search: h(z.object({ q: z.string(), deckId: z.string().optional() }), (i) => repo.searchCards(i.q, i.deckId)),
+    review: h(z.object({ cardId: id, rating: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }), (i) => repo.applyReview(i.cardId, i.rating, 'flashcard')),
+    reviewState: h(z.object({ cardId: id }), (i) => repo.getReviewState(i.cardId)),
+    restoreReview: h(
+      z.object({ cardId: id, state: z.object({ ease: z.number(), interval: z.number(), repetitions: z.number(), lapses: z.number(), due: z.string(), last_reviewed: z.string().nullable() }).nullable() }),
+      async (i) => {
+        const { getDb } = await import('./db')
+        const d = getDb()
+        if (i.state) {
+          d.prepare(
+            `INSERT INTO review_state VALUES (@card_id, @ease, @interval, @repetitions, @lapses, @due, @last_reviewed)
+             ON CONFLICT(card_id) DO UPDATE SET ease=@ease, interval=@interval, repetitions=@repetitions, lapses=@lapses, due=@due, last_reviewed=@last_reviewed`
+          ).run({ card_id: i.cardId, ...i.state })
+        } else d.prepare('DELETE FROM review_state WHERE card_id = ?').run(i.cardId)
+        d.prepare("DELETE FROM review_log WHERE id = (SELECT MAX(id) FROM review_log WHERE card_id = ? AND source = 'flashcard')").run(i.cardId)
+        return true
+      }
+    ),
+    validate: h(z.object({ cards: z.array(z.object({ front: z.string(), back: z.string() })) }), (i) => validateCards(i.cards))
+  },
+
+  notes: {
+    list: h(none, () => repo.listNotes()),
+    get: h(z.object({ id }), (i) => repo.getNote(i.id)),
+    create: h(
+      z.object({ title: z.string().optional(), module: z.string().optional(), type: z.string().optional(), week: z.string().optional(), content: z.string().optional(), folder_id: z.string().nullable().optional() }),
+      (i) => repo.createNote(i)
+    ),
+    update: h(
+      z.object({
+        id,
+        patch: z.object({ title: z.string().optional(), module: z.string().optional(), type: z.string().optional(), week: z.string().optional(), content: z.string().optional(), folder_id: z.string().nullable().optional() })
+      }),
+      (i) => repo.updateNote(i.id, i.patch)
+    ),
+    delete: h(z.object({ id }), (i) => repo.deleteNote(i.id)),
+    linkDeck: h(z.object({ noteId: id, deckId: id, linked: z.boolean() }), (i) => repo.linkNoteDeck(i.noteId, i.deckId, i.linked)),
+    forDeck: h(z.object({ deckId: id }), (i) => repo.notesForDeck(i.deckId)),
+    ai: h(
+      z.object({ kind: z.enum(['simplify', 'shorten', 'fix_formatting', 'expand']), text: z.string().min(1), noteId: z.string().nullable(), streamId }),
+      (i, ctx) => explain.noteAction(i.kind, i.text, i.noteId, ctx.stream(i.streamId) ?? (() => {}))
+    ),
+    /** "Quiz me on this": make a few cards from the selection into a quiz deck. */
+    quiz: h(z.object({ noteId: id, text: z.string().min(1) }), async (i) => {
+      const note = repo.getNote(i.noteId)
+      const name = `Quiz: ${note.title}`
+      const deck = repo.listDecks().find((d) => d.name === name) ?? repo.createDeck({ name })
+      repo.linkNoteDeck(note.id, deck.id, true)
+      const job = await gen.generateCards(
+        { sources: { files: [], topic: '', text: i.text, noteIds: [] }, deckId: deck.id, presetId: presets.getPresetByKey('cards.standard')?.id, format: 'question_answer', cardType: 'regular', language: '', instructions: 'Make 3–6 cards that test the key ideas.', count: 5 },
+        { signal: new AbortController().signal, progress: () => {}, delta: () => {} }
+      )
+      const created = repo.createCards(job.cards.map(({ key: _k, ...c }) => ({ ...c, deck_id: deck.id, source: { type: 'note' as const, noteId: note.id, section: gen.bestSection(note.content, i.text) } })))
+      return { deckId: deck.id, cardIds: created.map((c) => c.id) }
+    })
+  },
+
+  gen: {
+    notes: h(gen.GenerateNotesInput, (i) =>
+      startJob('generate_notes', `Notes: ${i.title || i.sources.topic || (i.sources.files[0] ? basename(i.sources.files[0]) : 'from notes')}`, (ctx) => gen.generateNotes(i, ctx))
+    ),
+    cards: h(gen.GenerateCardsInput, (i) =>
+      startJob('generate_cards', `Flashcards: ${i.sources.topic || (i.sources.files[0] ? basename(i.sources.files[0]) : i.sources.noteIds.length ? 'from notes' : 'from text')}`, (ctx) => gen.generateCards(i, ctx))
+    ),
+    fixCard: h(z.object({ front: z.string(), back: z.string(), problem: z.string().default(''), deckId: z.string().nullable().optional(), regenerate: z.boolean().optional(), format: CardFormat.optional() }), (i) => gen.fixCard(i)),
+    save: h(z.object({ deckId: id, cards: z.array(PreviewCardSchema).max(5000) }), (i) =>
+      repo.createCards(i.cards.map(({ key: _k, ...c }) => ({ ...c, deck_id: i.deckId, required_points: c.required_points ?? null, source: c.source ?? null, language: c.language ?? null }))).length
+    )
+  },
+
+  jobs: {
+    list: h(none, () => listJobs()),
+    get: h(z.object({ id }), (i) => getJob(i.id)),
+    cancel: h(z.object({ id }), (i) => cancelJob(i.id)),
+    cancelAll: h(none, () => listJobs().forEach((j) => j.status === 'running' && cancelJob(j.id))),
+    clear: h(none, () => clearFinishedJobs())
+  },
+
+  learn: {
+    settings: h(z.object({ deckId: id }), (i) => learn.settingsFor(i.deckId)),
+    saveSettings: h(z.object({ deckId: id, settings: LearnSettings }), (i) => repo.updateDeck(i.deckId, { learn_settings: i.settings }).learn_settings),
+    start: h(z.object({ deckId: id, cardIds: z.array(z.string()).optional() }), (i) => learn.startSession(i.deckId, i.cardIds)),
+    batch: h(z.object({ sessionId: id, batch: z.number().int().min(0) }), (i) => learn.getBatch(i.sessionId, i.batch)),
+    submit: h(z.object({ sessionId: z.string().nullable(), deckId: id, question: LearnQuestionSchema, answer: LearnAnswerSchema }), (i) => learn.submitAnswer(i.sessionId, i.deckId, i.question, i.answer)),
+    override: h(z.object({ attemptId: id }), (i) => learn.overrideAttempt(i.attemptId)),
+    feedback: h(z.object({ attemptId: id }), (i) => learn.feedbackFor(i.attemptId)),
+    hint: h(z.object({ cardId: id, question: LearnQuestionSchema, index: z.number().int().min(0).max(1), previous: z.array(z.string()) }), (i) => learn.hintFor(i.cardId, i.question, i.index, i.previous)),
+    regenerate: h(z.object({ deckId: id, question: LearnQuestionSchema }), (i) => learn.regenerateQuestion(i.deckId, i.question)),
+    end: h(z.object({ sessionId: id }), (i) => learn.endSession(i.sessionId)),
+    texts: h(z.object({ question: LearnQuestionSchema, answer: LearnAnswerSchema.optional() }), (i) => ({
+      question: learn.questionText(i.question),
+      expected: learn.expectedText(i.question),
+      answer: i.answer ? learn.answerText(i.question, i.answer) : null
+    }))
+  },
+
+  explain: {
+    run: h(z.object({ ctx: ExplainCtx, mode: z.string(), explanationId: z.string().nullable(), streamId }), (i, c) => explain.explain(i.ctx, i.mode, i.explanationId, c.stream(i.streamId) ?? (() => {}))),
+    chat: h(z.object({ explanationId: id, message: z.string().min(1), streamId }), (i, c) => explain.chat(i.explanationId, i.message, c.stream(i.streamId) ?? (() => {}))),
+    history: h(z.object({ cardId: id }), (i) => explain.historyForCard(i.cardId)),
+    saveToCard: h(z.object({ cardId: id, text: z.string() }), (i) => repo.updateCard(i.cardId, { explanation: i.text }))
+  },
+
+  actions: {
+    list: h(none, () => presets.listActions()),
+    save: h(CustomAction.partial().extend({ name: z.string().min(1), prompt: z.string().min(1) }), (i) => presets.saveAction(i)),
+    delete: h(z.object({ id }), (i) => presets.deleteAction(i.id)),
+    run: h(z.object({ actionId: id, ctx: ExplainCtx, streamId }), (i, c) => explain.runAction(i.actionId, i.ctx, c.stream(i.streamId) ?? (() => {})))
+  },
+
+  presets: {
+    tasks: h(none, () => TASKS.map((t) => TASK_INFO[t])),
+    list: h(z.object({ task: z.string().optional() }).optional(), (i) => presets.listPresets(i?.task)),
+    get: h(z.object({ id }), (i) => presets.getPreset(i.id)),
+    update: h(z.object({ id, patch: z.object({ name: z.string().optional(), system: z.string().optional(), user_template: z.string().optional(), output_mode: OutputMode.optional() }) }), (i) =>
+      presets.updatePreset(i.id, i.patch)
+    ),
+    duplicate: h(z.object({ id, name: z.string().optional() }), (i) => presets.duplicatePreset(i.id, i.name)),
+    setDefault: h(z.object({ id }), (i) => presets.setDefaultPreset(i.id)),
+    delete: h(z.object({ id }), (i) => presets.deletePreset(i.id)),
+    reset: h(z.object({ id }), (i) => presets.resetPreset(i.id)),
+    versions: h(z.object({ id }), (i) => presets.presetVersions(i.id)),
+    preview: h(
+      z.object({ id, vars: z.record(z.string(), z.unknown()), override: z.object({ system: z.string(), user_template: z.string(), output_mode: OutputMode }).optional() }),
+      (i) => {
+        const p = presets.getPreset(i.id)
+        const r = renderPrompt({ task: p.task as TaskId, presetId: p.id, vars: i.vars, presetOverride: i.override })
+        return { system: r.system, prompt: r.prompt, mode: r.mode, model: r.model }
+      }
+    ),
+    testRun: h(
+      z.object({ id, vars: z.record(z.string(), z.unknown()), override: z.object({ system: z.string(), user_template: z.string(), output_mode: OutputMode }).optional(), streamId }),
+      async (i, c) => {
+        const p = presets.getPreset(i.id)
+        const started = Date.now()
+        try {
+          const r = await runAI({ task: p.task as TaskId, presetId: p.id, vars: i.vars, presetOverride: i.override, onDelta: c.stream(i.streamId) })
+          return { ok: true, raw: r.text, parsed: r.data, ms: Date.now() - started, model: r.model }
+        } catch (e) {
+          return { ok: false, raw: '', parsed: null, error: friendlyError(e), ms: Date.now() - started, model: null }
+        }
+      }
+    ),
+    exportFile: h(none, async (_i, ctx) => {
+      const file = await pickSave(winOf(ctx), 'studywise-presets.json', [{ name: 'JSON', extensions: ['json'] }])
+      if (!file) return null
+      writeFileSync(file, JSON.stringify(presets.exportPresets(), null, 2))
+      return file
+    }),
+    importFile: h(none, async (_i, ctx) => {
+      const [file] = await pickFiles(winOf(ctx), [{ name: 'JSON', extensions: ['json'] }], false)
+      if (!file) return null
+      return presets.importPresets(JSON.parse(readFileSync(file, 'utf8')))
+    })
+  },
+
+  models: {
+    get: h(none, () => models.globalModels()),
+    set: h(z.object({ task: z.enum(TASKS), choice: ModelChoice }), (i) => models.setGlobalModel(i.task, i.choice)),
+    reset: h(none, () => models.resetGlobalModels()),
+    test: h(z.object({ model: z.string().min(1), effort: z.string().nullable().optional() }), async (i) => {
+      const started = Date.now()
+      try {
+        const r = await runAI<string>({ task: 'note_simplify', vars: { source_text: 'Reply with exactly: ok', title: 'test', instructions: 'Reply with the single word ok.' }, model: { model: i.model, effort: i.effort ?? null } })
+        return { ok: true, reply: r.text.slice(0, 200), ms: Date.now() - started }
+      } catch (e) {
+        return { ok: false, reply: friendlyError(e), ms: Date.now() - started }
+      }
+    })
+  },
+
+  ai: {
+    calls: h(z.object({ limit: z.number().int().min(1).max(2000).optional() }).optional(), (i) => repo.listAiCalls(i?.limit ?? 300)),
+    summary: h(none, () => repo.aiUsageSummary()),
+    queue: h(none, () => ({ running: aiQueue.running, waiting: aiQueue.waiting }))
+  },
+
+  io: {
+    importCards: h(z.object({ deckId: id, files: z.array(z.string()).optional() }), async (i, ctx) => {
+      const files = i.files?.length ? i.files : await pickFiles(winOf(ctx), [{ name: 'Cards', extensions: ['txt', 'xlsx', 'csv', 'json'] }])
+      let n = 0
+      for (const f of files) n += await importCardsFromFile(f, i.deckId)
+      return n
+    }),
+    importDeck: h(none, async (_i, ctx) => {
+      const files = await pickFiles(winOf(ctx), [{ name: 'Cards', extensions: ['txt', 'xlsx', 'csv', 'json'] }])
+      const created: string[] = []
+      for (const f of files) {
+        let name = basename(f, extname(f))
+        if (extname(f).toLowerCase() === '.json') {
+          try {
+            name = io.DeckJson.parse(JSON.parse(readFileSync(f, 'utf8'))).name
+          } catch {
+            /* keep file name */
+          }
+        }
+        const deck = repo.createDeck({ name })
+        await importCardsFromFile(f, deck.id)
+        created.push(deck.id)
+      }
+      return created
+    }),
+    exportDeck: h(z.object({ deckId: id, format: z.enum(['txt', 'xlsx', 'json', 'csv']) }), async (i, ctx) => {
+      const deck = repo.getDeck(i.deckId)
+      const cards = repo.listCards(i.deckId)
+      const file = await pickSave(winOf(ctx), `${safeName(deck.name)}.${i.format}`, [{ name: i.format.toUpperCase(), extensions: [i.format] }])
+      if (!file) return null
+      if (i.format === 'txt') io.writeText(file, io.cardsToStudySmarterText(cards))
+      else if (i.format === 'xlsx') writeFileSync(file, await io.cardsToXlsx(cards))
+      else if (i.format === 'json') io.writeText(file, io.deckToJson(deck, cards))
+      else io.writeText(file, io.cardsToCsv(cards))
+      return file
+    }),
+    importNotes: h(z.object({ files: z.array(z.string()).optional(), folderId: z.string().nullable().optional() }).optional(), async (i, ctx) => {
+      const files = i?.files?.length ? i.files : await pickFiles(winOf(ctx), [{ name: 'Notes', extensions: ['md', 'markdown', 'txt', 'zip'] }])
+      const ids: string[] = []
+      for (const f of files) for (const n of await io.notesFromFile(f)) ids.push(repo.createNote({ ...n, folder_id: i?.folderId ?? null }).id)
+      return ids
+    }),
+    exportNote: h(z.object({ noteId: id }), async (i, ctx) => {
+      const n = repo.getNote(i.noteId)
+      const file = await pickSave(winOf(ctx), `${safeName(n.title)}.md`, [{ name: 'Markdown', extensions: ['md'] }])
+      if (!file) return null
+      const meta = [n.module && `Module: ${n.module}`, n.type && `Type: ${n.type}`, n.week && `Week: ${n.week}`].filter(Boolean).join('\n')
+      io.writeText(file, `# ${n.title}\n${meta ? `\n${meta}\n` : ''}\n${n.content}`)
+      return file
+    })
+  }
+} as const
+
+// ---------------------------------------------------------------------------
+// Types for the renderer
+
+type HandlerFn<T> = T extends Handler<infer I, infer O> ? (undefined extends I ? (input?: I) => Promise<Awaited<O>> : (input: I) => Promise<Awaited<O>>) : never
+export type StudywiseApi = { [D in keyof typeof handlers]: { [M in keyof (typeof handlers)[D]]: HandlerFn<(typeof handlers)[D][M]> } }
+
+export function channelList(): string[] {
+  return Object.entries(handlers).flatMap(([d, ms]) => Object.keys(ms).map((m) => `${d}.${m}`))
+}
+
+let afterCall: ((channel: string) => void) | null = null
+export function setAfterCall(fn: (channel: string) => void): void {
+  afterCall = fn
+}
+
+export function registerIpc(): void {
+  for (const [domain, methods] of Object.entries(handlers)) {
+    for (const [method, handler] of Object.entries(methods as Record<string, Handler<unknown, unknown>>)) {
+      const channel = `sw:${domain}.${method}`
+      ipcMain.handle(channel, async (event, payload) => {
+        const parsed = handler.input.safeParse(payload)
+        if (!parsed.success) {
+          return { ok: false, error: `Invalid request to ${domain}.${method}: ${parsed.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}` }
+        }
+        const sender = event.sender
+        const ctx: Ctx = {
+          sender,
+          stream: (sid) => (sid ? (text: string) => !sender.isDestroyed() && sender.send('sw:event', { type: 'ai:delta', streamId: sid, text }) : undefined)
+        }
+        try {
+          const data = await handler.fn(parsed.data, ctx)
+          afterCall?.(`${domain}.${method}`)
+          return { ok: true, data }
+        } catch (e) {
+          console.error(`[ipc] ${domain}.${method} failed:`, e)
+          return { ok: false, error: friendlyError(e) }
+        }
+      })
+    }
+  }
+}
+
+export function broadcast(payload: unknown): void {
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('sw:event', payload)
+}

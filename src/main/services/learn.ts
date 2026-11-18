@@ -1,0 +1,575 @@
+import { z } from 'zod'
+import { getDb, uid, now, json } from '../db'
+import * as repo from '../db/repo'
+import { runAI } from '../ai'
+import { defaultPreset } from '../ai/presets'
+import { cardBlanks } from '@shared/blanks'
+import { markInCode, markFillBlankExact, fillBlankFromAi, verdictFor } from '@shared/marking'
+import { ratingForVerdict } from '@shared/sm2'
+import {
+  QuestionPayloads,
+  segmentsToPrompt,
+  type LearnQuestion,
+  type LearnAnswer,
+  type Mark,
+  type AiQuestionItem,
+  type FreeAnswerMark
+} from '@shared/questions'
+import {
+  QUESTION_TYPES,
+  DEFAULT_THRESHOLDS,
+  LearnSettings as LearnSettingsSchema,
+  type Card,
+  type QuestionType,
+  type LearnSettings,
+  type Thresholds,
+  type ReviewState
+} from '@shared/types'
+
+export const BATCH_SIZE = 8
+type AiType = AiQuestionItem['type']
+const AI_TYPES: AiType[] = ['read_understand', 'multiple_choice', 'free_answer', 'true_false', 'choice_blank']
+
+export type PlanItem = { type: QuestionType; card_id: string; card_ids: string[] }
+
+interface Session {
+  id: string
+  deckId: string
+  plan: PlanItem[]
+  batches: Map<number, Promise<LearnQuestion[]>>
+}
+const sessions = new Map<string, Session>()
+
+export function defaultLearnSettings(): LearnSettings {
+  return LearnSettingsSchema.parse({ types: Object.fromEntries(QUESTION_TYPES.map((t) => [t, true])), sessionLength: 20, shuffle: true })
+}
+
+export function settingsFor(deckId: string): LearnSettings {
+  const d = repo.getDeck(deckId)
+  const base = defaultLearnSettings()
+  const s = d.learn_settings ?? base
+  return { ...base, ...s, types: { ...base.types, ...s.types } }
+}
+
+export function thresholdsFor(deckId: string | null): Thresholds {
+  const global = repo.getSetting<Thresholds>('thresholds', DEFAULT_THRESHOLDS)
+  if (!deckId) return global
+  try {
+    return repo.getDeck(deckId).thresholds ?? global
+  } catch {
+    return global
+  }
+}
+
+function shuffle<T>(arr: T[], rand = Math.random): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+/** Which single-card types fit this card. */
+export function typesForCard(card: Card, enabled: QuestionType[]): QuestionType[] {
+  const blanks = cardBlanks(card)
+  return enabled.filter((t) => {
+    if (t === 'match_pairs' || t === 'categorize') return false
+    if (t === 'fill_blank' || t === 'choice_blank') return !!blanks
+    if (t === 'true_false' || t === 'multiple_choice') return card.back.trim().length > 0
+    return true
+  })
+}
+
+/** Build the question plan: one question per card, with group questions mixed in. */
+export function planSession(cards: Card[], settings: LearnSettings, rand = Math.random): PlanItem[] {
+  const enabled = QUESTION_TYPES.filter((t) => settings.types[t] !== false)
+  if (enabled.length === 0) throw new Error('Turn on at least one question type.')
+  const ordered = settings.shuffle ? shuffle(cards, rand) : cards
+  const picked = ordered.slice(0, settings.sessionLength)
+  const plan: PlanItem[] = []
+  const counts = new Map<QuestionType, number>()
+  for (const c of picked) {
+    const options = typesForCard(c, enabled)
+    if (options.length === 0) {
+      // Card can't take any enabled single type (e.g. only fill-blank on, card has no blanks).
+      if (enabled.includes('read_understand')) plan.push({ type: 'read_understand', card_id: c.id, card_ids: [c.id] })
+      continue
+    }
+    // Balance types: prefer the least-used option, random tie-break.
+    const min = Math.min(...options.map((o) => counts.get(o) ?? 0))
+    const least = options.filter((o) => (counts.get(o) ?? 0) === min)
+    const t = least[Math.floor(rand() * least.length)]
+    counts.set(t, (counts.get(t) ?? 0) + 1)
+    plan.push({ type: t, card_id: c.id, card_ids: [c.id] })
+  }
+  const groupTypes = enabled.filter((t) => t === 'match_pairs' || t === 'categorize')
+  if (groupTypes.length > 0 && cards.length >= 4) {
+    const slots = Math.max(1, Math.floor(plan.length / 6))
+    for (let i = 0; i < slots; i++) {
+      const t = groupTypes[i % groupTypes.length]
+      const need = t === 'match_pairs' ? Math.min(6, Math.max(4, Math.min(cards.length, 4 + Math.floor(rand() * 3)))) : Math.min(9, cards.length)
+      if (t === 'categorize' && cards.length < 4) continue
+      const group = shuffle(cards, rand).slice(0, need)
+      const at = Math.min(plan.length, (i + 1) * 6 - 1)
+      plan.splice(at, 0, { type: t, card_id: group[0].id, card_ids: group.map((c) => c.id) })
+    }
+  }
+  if (plan.length === 0) throw new Error('No cards can be turned into the selected question types.')
+  return plan
+}
+
+export function startSession(deckId: string, cardIds?: string[]): { sessionId: string; total: number; settings: LearnSettings } {
+  const settings = settingsFor(deckId)
+  let cards = repo.listCards(deckId)
+  if (cardIds?.length) cards = cards.filter((c) => cardIds.includes(c.id))
+  if (cards.length === 0) throw new Error('This deck has no cards yet.')
+  // Due and weak cards first when not shuffling the whole deck.
+  const due = new Set(repo.dueCards(deckId).map((c) => c.id))
+  if (cards.length > settings.sessionLength) cards = [...cards.filter((c) => due.has(c.id)), ...cards.filter((c) => !due.has(c.id))]
+  const plan = planSession(cards, { ...settings, shuffle: settings.shuffle })
+  const id = uid()
+  getDb().prepare('INSERT INTO learn_sessions (id, deck_id, settings, started_at) VALUES (?, ?, ?, ?)').run(id, deckId, JSON.stringify(settings), now())
+  sessions.set(id, { id, deckId, plan, batches: new Map() })
+  return { sessionId: id, total: plan.length, settings }
+}
+
+export function endSession(sessionId: string): { answered: number; correct: number; partial: number; wrong: number } {
+  const rows = getDb().prepare('SELECT verdict, overridden FROM answer_attempts WHERE session_id = ?').all(sessionId) as { verdict: string; overridden: number }[]
+  const stats = {
+    answered: rows.length,
+    correct: rows.filter((r) => r.verdict === 'correct').length,
+    partial: rows.filter((r) => r.verdict === 'partial').length,
+    wrong: rows.filter((r) => r.verdict === 'wrong').length
+  }
+  getDb().prepare('UPDATE learn_sessions SET ended_at = ?, stats = ? WHERE id = ?').run(now(), JSON.stringify(stats), sessionId)
+  sessions.delete(sessionId)
+  return stats
+}
+
+/** Get questions [batch*8, batch*8+8). Generation is shared, so prefetching twice is free. */
+export function getBatch(sessionId: string, batch: number): Promise<LearnQuestion[]> {
+  const s = sessions.get(sessionId)
+  if (!s) return Promise.reject(new Error('Learn session expired. Start again.'))
+  const items = s.plan.slice(batch * BATCH_SIZE, batch * BATCH_SIZE + BATCH_SIZE)
+  if (items.length === 0) return Promise.resolve([])
+  let p = s.batches.get(batch)
+  if (!p) {
+    p = buildQuestions(s.deckId, items)
+    s.batches.set(batch, p)
+    p.catch(() => s.batches.delete(batch))
+  }
+  return p
+}
+
+function cachedPayload(cardId: string, type: string, presetId: string, version: number): unknown | null {
+  const r = getDb()
+    .prepare('SELECT payload FROM question_cache WHERE card_id = ? AND qtype = ? AND preset_id = ? AND preset_version = ?')
+    .get(cardId, type, presetId, version) as { payload: string } | undefined
+  return r ? json(r.payload, null) : null
+}
+function cachePayload(cardId: string, type: string, presetId: string, version: number, payload: unknown): void {
+  getDb()
+    .prepare('INSERT OR REPLACE INTO question_cache VALUES (?, ?, ?, ?, ?, ?)')
+    .run(cardId, type, presetId, version, JSON.stringify(payload), now())
+}
+
+const stripPoints = (s: string) => s.replace(/\s*\(\d+\)\s*$/, '').trim()
+const firstLine = (s: string) =>
+  s
+    .split('\n')
+    .map((l) => l.replace(/^\s*[-*•]\s+/, '').trim())
+    .filter(Boolean)
+    .join('; ')
+
+export function matchPairsFor(cards: Card[]): LearnQuestion {
+  const pairs = cards.map((c) => ({
+    left: stripPoints(c.front).slice(0, 120),
+    right: firstLine(c.back.replace(/\*\*/g, '')).slice(0, 140) || c.back.slice(0, 140),
+    card_id: c.id
+  }))
+  return { id: uid(), type: 'match_pairs', card_id: cards[0].id, card_ids: cards.map((c) => c.id), payload: { pairs }, cached: false }
+}
+
+/** Fallback question when the AI fails for a card: free answer on the card itself. */
+function fallbackQuestion(card: Card): LearnQuestion {
+  return {
+    id: uid(),
+    type: 'free_answer',
+    card_id: card.id,
+    card_ids: [card.id],
+    payload: { question: card.front, expected_answer: card.back || card.front },
+    cached: false
+  }
+}
+
+function fromAiItem(item: AiQuestionItem, card: Card): LearnQuestion | null {
+  const base = { id: uid(), card_id: card.id, card_ids: [card.id], cached: false }
+  switch (item.type) {
+    case 'read_understand': {
+      const p = QuestionPayloads.read_understand.safeParse({ title: item.title ?? '', explanation: item.explanation ?? '' })
+      return p.success ? { ...base, type: 'read_understand', payload: p.data } : null
+    }
+    case 'multiple_choice': {
+      const p = QuestionPayloads.multiple_choice.safeParse({ question: item.question, options: item.options, correct_index: item.correct_index })
+      return p.success ? { ...base, type: 'multiple_choice', payload: p.data } : null
+    }
+    case 'free_answer': {
+      const p = QuestionPayloads.free_answer.safeParse({ question: item.question || card.front, expected_answer: item.expected_answer })
+      return p.success ? { ...base, type: 'free_answer', payload: p.data } : null
+    }
+    case 'true_false': {
+      const p = QuestionPayloads.true_false.safeParse({ statement: item.statement, is_true: item.is_true, correction: item.correction ?? '' })
+      return p.success ? { ...base, type: 'true_false', payload: p.data } : null
+    }
+    case 'choice_blank': {
+      const blanks = cardBlanks(card)
+      if (!blanks) return null
+      const choices = blanks.answers.map((ans, i) => {
+        const d = (item.distractors?.[i] ?? []).filter((x) => x && x.trim().toLowerCase() !== ans.trim().toLowerCase()).slice(0, 3)
+        return shuffle([ans, ...d])
+      })
+      if (choices.some((c) => c.length < 2)) return null
+      return {
+        ...base,
+        type: 'choice_blank',
+        payload: { prompt: blanks.source === 'bold' ? stripPoints(card.front) : '', segments: blanks.segments, answers: blanks.answers, choices }
+      }
+    }
+  }
+}
+
+function fillBlankFor(card: Card): LearnQuestion | null {
+  const b = cardBlanks(card)
+  if (!b) return null
+  return {
+    id: uid(),
+    type: 'fill_blank',
+    card_id: card.id,
+    card_ids: [card.id],
+    payload: { prompt: b.source === 'bold' ? stripPoints(card.front) : '', segments: b.segments, answers: b.answers },
+    cached: false
+  }
+}
+
+async function categorizeFor(deckId: string, cards: Card[]): Promise<LearnQuestion | null> {
+  const r = await runAI<{ categories: string[]; items: { text: string; category: string; card_id?: string | null }[] }>({
+    task: 'make_categorize',
+    deckId,
+    vars: { cards: JSON.stringify(cards.map((c) => ({ card_id: c.id, front: c.front, back: c.back }))) }
+  })
+  const cats = r.data.categories
+  const items = r.data.items.filter((i) => cats.includes(i.category)).map((i) => ({ text: i.text, category: i.category, card_id: i.card_id ?? undefined }))
+  const p = QuestionPayloads.categorize.safeParse({ categories: cats, items: shuffle(items) })
+  if (!p.success) return null
+  return { id: uid(), type: 'categorize', card_id: cards[0].id, card_ids: cards.map((c) => c.id), payload: p.data, cached: false }
+}
+
+export async function buildQuestions(deckId: string, items: PlanItem[], opts: { noCache?: boolean } = {}): Promise<LearnQuestion[]> {
+  const preset = defaultPreset('make_questions')
+  const allIds = [...new Set(items.flatMap((i) => i.card_ids))]
+  const cards = new Map(repo.getCards(allIds).map((c) => [c.id, c]))
+  const out = new Map<number, LearnQuestion>()
+  const needAi: { idx: number; item: PlanItem; card: Card }[] = []
+  const groupJobs: Promise<void>[] = []
+
+  items.forEach((item, idx) => {
+    const card = cards.get(item.card_id)
+    if (!card) return
+    if (item.type === 'match_pairs') {
+      out.set(idx, matchPairsFor(item.card_ids.map((id) => cards.get(id)).filter((c): c is Card => !!c)))
+      return
+    }
+    if (item.type === 'categorize') {
+      const group = item.card_ids.map((id) => cards.get(id)).filter((c): c is Card => !!c)
+      groupJobs.push(
+        categorizeFor(deckId, group)
+          .then((q) => {
+            out.set(idx, q ?? matchPairsFor(group.slice(0, 6)))
+          })
+          .catch(() => {
+            out.set(idx, matchPairsFor(group.slice(0, 6)))
+          })
+      )
+      return
+    }
+    if (item.type === 'fill_blank') {
+      out.set(idx, fillBlankFor(card) ?? fallbackQuestion(card))
+      return
+    }
+    if (!opts.noCache) {
+      const cached = cachedPayload(card.id, item.type, preset.id, preset.version)
+      if (cached) {
+        const schema = QuestionPayloads[item.type]
+        const p = schema.safeParse(cached)
+        if (p.success) {
+          const payload = item.type === 'choice_blank' ? { ...(p.data as z.infer<typeof QuestionPayloads.choice_blank>), choices: (p.data as z.infer<typeof QuestionPayloads.choice_blank>).choices.map((c) => shuffle(c)) } : p.data
+          out.set(idx, { id: uid(), type: item.type, card_id: card.id, card_ids: [card.id], payload, cached: true } as LearnQuestion)
+          return
+        }
+      }
+    }
+    needAi.push({ idx, item, card })
+  })
+
+  if (needAi.length > 0) {
+    const payload = needAi.map(({ item, card }) => ({
+      card_id: card.id,
+      type: item.type,
+      front: card.front,
+      back: card.back,
+      ...(item.type === 'choice_blank' ? { blanks: cardBlanks(card)?.answers ?? [] } : {}),
+      ...(card.options.length ? { options: card.options } : {})
+    }))
+    try {
+      const r = await runAI<{ questions: AiQuestionItem[] }>({ task: 'make_questions', deckId, vars: { cards: JSON.stringify(payload, null, 1) } })
+      const byCard = new Map(r.data.questions.map((q) => [`${q.card_id}:${q.type}`, q]))
+      for (const { idx, item, card } of needAi) {
+        const ai = byCard.get(`${card.id}:${item.type}`) ?? r.data.questions.find((q) => q.card_id === card.id)
+        const q = ai && AI_TYPES.includes(ai.type) ? fromAiItem({ ...ai, type: item.type as AiType }, card) : null
+        if (q) cachePayload(card.id, q.type, preset.id, preset.version, q.payload)
+        out.set(idx, q ?? fallbackQuestion(card))
+      }
+    } catch (e) {
+      // Never leave the user waiting on a broken batch: fall back to free-answer questions.
+      console.error('[learn] question batch failed', e)
+      for (const { idx, card } of needAi) out.set(idx, fallbackQuestion(card))
+    }
+  }
+  await Promise.all(groupJobs)
+  return items.map((_, idx) => out.get(idx)).filter((q): q is LearnQuestion => !!q)
+}
+
+export async function regenerateQuestion(deckId: string, q: Pick<LearnQuestion, 'type' | 'card_id' | 'card_ids'>): Promise<LearnQuestion> {
+  getDb().prepare('DELETE FROM question_cache WHERE card_id = ? AND qtype = ?').run(q.card_id, q.type)
+  const [nq] = await buildQuestions(deckId, [{ type: q.type, card_id: q.card_id, card_ids: q.card_ids }], { noCache: true })
+  if (!nq) throw new Error('Could not regenerate this question')
+  return nq
+}
+
+// ---------- marking ----------
+
+export function questionText(q: LearnQuestion): string {
+  switch (q.type) {
+    case 'read_understand':
+      return q.payload.title
+    case 'multiple_choice':
+      return `${q.payload.question}\n${q.payload.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`).join('\n')}`
+    case 'free_answer':
+      return q.payload.question
+    case 'true_false':
+      return `True or false: ${q.payload.statement}`
+    case 'match_pairs':
+      return 'Match each term with its definition'
+    case 'categorize':
+      return `Sort into: ${q.payload.categories.join(', ')}`
+    case 'fill_blank':
+    case 'choice_blank':
+      return [q.payload.prompt, segmentsToPrompt(q.payload.segments)].filter(Boolean).join('\n')
+  }
+}
+
+export function expectedText(q: LearnQuestion): string {
+  switch (q.type) {
+    case 'read_understand':
+      return ''
+    case 'multiple_choice':
+      return q.payload.options[q.payload.correct_index]
+    case 'free_answer':
+      return q.payload.expected_answer
+    case 'true_false':
+      return q.payload.is_true ? 'True' : `False. ${q.payload.correction}`
+    case 'match_pairs':
+      return q.payload.pairs.map((p) => `${p.left} → ${p.right}`).join('\n')
+    case 'categorize':
+      return q.payload.items.map((i) => `${i.text} → ${i.category}`).join('\n')
+    case 'fill_blank':
+    case 'choice_blank':
+      return q.payload.answers.join(' | ')
+  }
+}
+
+export function answerText(q: LearnQuestion, a: LearnAnswer): string {
+  switch (a.type) {
+    case 'read_understand':
+      return 'Got it'
+    case 'multiple_choice':
+      return q.type === 'multiple_choice' ? (q.payload.options[a.index] ?? '') : ''
+    case 'true_false':
+      return a.value ? 'True' : 'False'
+    case 'free_answer':
+      return a.text
+    case 'match_pairs':
+      return q.type === 'match_pairs' ? q.payload.pairs.map((p, i) => `${p.left} → ${q.payload.pairs[a.mapping[i]]?.right ?? '(none)'}`).join('\n') : ''
+    case 'categorize':
+      return q.type === 'categorize' ? q.payload.items.map((it, i) => `${it.text} → ${a.assignments[i] ?? '(none)'}`).join('\n') : ''
+    case 'fill_blank':
+    case 'choice_blank':
+      return a.values.join(' | ')
+  }
+}
+
+export async function markAnswer(deckId: string, q: LearnQuestion, a: LearnAnswer): Promise<Mark> {
+  const t = thresholdsFor(deckId)
+  const code = markInCode(q, a, t)
+  if (code) return code
+  const card = repo.getCard(q.card_id)
+  if (q.type === 'free_answer' && a.type === 'free_answer') {
+    if (!a.text.trim()) return { score: 0, verdict: 'wrong', detail: { short_feedback: 'No answer given.' }, by: 'code' }
+    const r = await runAI<FreeAnswerMark>({
+      task: 'mark_free_answer',
+      deckId,
+      vars: {
+        front: card.front,
+        back: card.back,
+        required_points: card.required_points ?? 'not specified',
+        question: q.payload.question,
+        expected_answer: q.payload.expected_answer,
+        user_answer: a.text
+      }
+    })
+    const score = Math.max(0, Math.min(10, r.data.score))
+    return {
+      score,
+      verdict: verdictFor(score, t),
+      detail: { points_found: r.data.points_found, points_missing: r.data.points_missing, short_feedback: r.data.short_feedback },
+      by: 'ai'
+    }
+  }
+  if (q.type === 'fill_blank' && a.type === 'fill_blank') {
+    const exact = markFillBlankExact(a.values, q.payload.answers)
+    if (exact.mark) return exact.mark
+    const r = await runAI<{ blanks: { correct: boolean }[] }>({
+      task: 'mark_fill_blank',
+      deckId,
+      vars: {
+        front: card.front,
+        back: card.back,
+        question: segmentsToPrompt(q.payload.segments),
+        expected_answer: q.payload.answers.join(' | '),
+        user_answer: a.values.join(' | ')
+      }
+    })
+    // Code-matched blanks stay right; the AI only judges the rest.
+    const blanks = q.payload.answers.map((_, i) => exact.blanks[i] || !!r.data.blanks[i]?.correct)
+    return fillBlankFromAi(blanks)
+  }
+  throw new Error(`Can't mark ${q.type}`)
+}
+
+export async function submitAnswer(sessionId: string | null, deckId: string, q: LearnQuestion, a: LearnAnswer): Promise<{ attemptId: string; mark: Mark }> {
+  const mark = await markAnswer(deckId, q, a)
+  const prev: Record<string, ReviewState | null> = {}
+  // SM-2: group questions update each card by its own item result.
+  if (q.type !== 'read_understand') {
+    if (q.type === 'match_pairs' || q.type === 'categorize') {
+      const wrong = new Set((mark.detail?.wrongItems ?? []).map((i) => (q.type === 'match_pairs' ? q.payload.pairs[i]?.card_id : q.payload.items[i]?.card_id)))
+      for (const id of q.card_ids) {
+        prev[id] = repo.getReviewState(id)
+        repo.applyReview(id, wrong.has(id) ? 1 : 3, 'learn')
+      }
+    } else {
+      prev[q.card_id] = repo.getReviewState(q.card_id)
+      repo.applyReview(q.card_id, ratingForVerdict(mark.verdict), 'learn')
+    }
+  }
+  const id = uid()
+  getDb()
+    .prepare(
+      `INSERT INTO answer_attempts (id, session_id, card_id, qtype, question, answer, score, verdict, mark, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(id, sessionId, q.card_id, q.type, JSON.stringify(q), JSON.stringify(a), mark.score, mark.verdict, JSON.stringify({ ...mark, prev }), now())
+  return { attemptId: id, mark }
+}
+
+/** "I was right": record the override and redo SM-2 as Good. */
+export function overrideAttempt(attemptId: string): Mark {
+  const row = getDb().prepare('SELECT * FROM answer_attempts WHERE id = ?').get(attemptId) as { mark: string; card_id: string; qtype: string } | undefined
+  if (!row) throw new Error('Answer not found')
+  const m = json<Mark & { prev?: Record<string, ReviewState | null> }>(row.mark, { score: 0, verdict: 'wrong', by: 'code' })
+  const d = getDb()
+  d.transaction(() => {
+    for (const [cardId, state] of Object.entries(m.prev ?? {})) {
+      if (state) {
+        d.prepare('UPDATE review_state SET ease=?, interval=?, repetitions=?, lapses=?, due=?, last_reviewed=? WHERE card_id=?').run(
+          state.ease,
+          state.interval,
+          state.repetitions,
+          state.lapses,
+          state.due,
+          state.last_reviewed,
+          cardId
+        )
+      } else d.prepare('DELETE FROM review_state WHERE card_id = ?').run(cardId)
+      repo.applyReview(cardId, 3, 'learn')
+    }
+    d.prepare("UPDATE answer_attempts SET overridden = 1, verdict = 'correct', score = 10 WHERE id = ?").run(attemptId)
+  })()
+  return { ...m, score: 10, verdict: 'correct' }
+}
+
+export function getAttempt(id: string): { q: LearnQuestion; a: LearnAnswer; mark: Mark; deckId: string; feedback: unknown } {
+  const row = getDb()
+    .prepare('SELECT a.*, c.deck_id FROM answer_attempts a JOIN cards c ON c.id = a.card_id WHERE a.id = ?')
+    .get(id) as { question: string; answer: string; mark: string; deck_id: string; feedback: string | null; verdict: string; score: number }
+  if (!row) throw new Error('Answer not found')
+  const mark = json<Mark>(row.mark, { score: row.score, verdict: row.verdict as Mark['verdict'], by: 'code' })
+  return { q: json(row.question, null as unknown as LearnQuestion), a: json(row.answer, null as unknown as LearnAnswer), mark: { ...mark, verdict: row.verdict as Mark['verdict'], score: row.score }, deckId: row.deck_id, feedback: json(row.feedback, null) }
+}
+
+export async function feedbackFor(attemptId: string): Promise<{ kind: 'right'; takeaways: string[]; pro_tip: string } | { kind: 'wrong'; why_wrong: string; takeaways: string[]; how_to_remember: string }> {
+  const at = getAttempt(attemptId)
+  if (at.feedback) return at.feedback as never
+  const card = repo.getCard(at.q.card_id)
+  const vars = {
+    front: card.front,
+    back: card.back,
+    required_points: card.required_points ?? '',
+    question: questionText(at.q),
+    expected_answer: expectedText(at.q),
+    user_answer: answerText(at.q, at.a),
+    type: at.q.type
+  }
+  let fb: Awaited<ReturnType<typeof feedbackFor>>
+  if (at.mark.verdict === 'correct') {
+    const r = await runAI<{ takeaways: string[]; pro_tip: string }>({ task: 'feedback_right', deckId: at.deckId, vars })
+    fb = { kind: 'right', ...r.data }
+  } else {
+    const r = await runAI<{ why_wrong: string; takeaways: string[]; how_to_remember: string }>({ task: 'feedback_wrong', deckId: at.deckId, vars })
+    fb = { kind: 'wrong', ...r.data }
+  }
+  getDb().prepare('UPDATE answer_attempts SET feedback = ? WHERE id = ?').run(JSON.stringify(fb), attemptId)
+  return fb
+}
+
+/** Up to 2 escalating hints; the card's stored hints come first. */
+export async function hintFor(cardId: string, q: LearnQuestion, index: number, previous: string[]): Promise<{ hint: string; source: 'card' | 'ai' }> {
+  if (index > 1) throw new Error('No more hints for this question')
+  const card = repo.getCard(cardId)
+  if (card.hints[index]) return { hint: card.hints[index], source: 'card' }
+  const r = await runAI<{ hint: string }>({
+    task: 'hint',
+    deckId: card.deck_id,
+    vars: {
+      front: card.front,
+      back: card.back,
+      question: questionText(q),
+      type: q.type,
+      previous_hints: previous.length ? previous.map((h) => `- ${h}`).join('\n') : '(none)'
+    }
+  })
+  return { hint: r.data.hint, source: 'ai' }
+}
+
+export function lastAnswerFor(cardId: string): string | null {
+  const row = getDb().prepare('SELECT question, answer FROM answer_attempts WHERE card_id = ? ORDER BY created_at DESC LIMIT 1').get(cardId) as
+    | { question: string; answer: string }
+    | undefined
+  if (!row) return null
+  try {
+    return answerText(JSON.parse(row.question), JSON.parse(row.answer))
+  } catch {
+    return null
+  }
+}

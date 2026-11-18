@@ -1,0 +1,243 @@
+import { app, BrowserWindow, Notification, protocol, session, shell, net, nativeTheme } from 'electron'
+import { join, extname, normalize } from 'node:path'
+import { appendFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
+import { initPaths, paths } from './paths'
+import { openDb } from './db'
+import { seedPresets } from './ai/presets'
+import { aiQueue } from './ai'
+import { detectClaude, setOverridePath } from './ai/claudePath'
+import { registerIpc, broadcast, setAfterCall } from './ipc'
+import { buildMenu } from './menu'
+import { loadWindowState, trackWindowState } from './windowState'
+import { onJobEvent } from './jobs'
+import * as repo from './db/repo'
+import { SUPPORTED_SOURCE_EXT } from './files'
+
+// ---- logging to ~/Library/Application Support/Studywise/logs/main.log ----
+function setupLogging(): void {
+  const file = join(paths.logs, 'main.log')
+  for (const level of ['log', 'warn', 'error'] as const) {
+    const orig = console[level].bind(console)
+    console[level] = (...args: unknown[]) => {
+      orig(...args)
+      try {
+        appendFileSync(file, `${new Date().toISOString()} [${level}] ${args.map((a) => (a instanceof Error ? a.stack : typeof a === 'string' ? a : JSON.stringify(a))).join(' ')}\n`)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+protocol.registerSchemesAsPrivileged([{ scheme: 'studywise-file', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }])
+
+let mainWindow: BrowserWindow | null = null
+const pendingFiles: string[] = []
+let rendererReady = false
+
+const isDev = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL
+
+// Single instance: a second launch focuses the existing window.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', (_e, argv) => {
+    const files = argv.filter((a) => SUPPORTED_SOURCE_EXT.includes(extname(a).toLowerCase()))
+    if (files.length) openFiles(files)
+    showWindow()
+  })
+}
+
+// Files dropped on the Dock icon or opened with "Open with Studywise".
+app.on('open-file', (e, file) => {
+  e.preventDefault()
+  openFiles([file])
+})
+
+function openFiles(files: string[]): void {
+  if (rendererReady && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('sw:event', { type: 'open-files', paths: files })
+    showWindow()
+  } else pendingFiles.push(...files)
+}
+
+function showWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  else {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
+}
+
+function sendMenu(action: string): void {
+  showWindow()
+  const send = () => mainWindow?.webContents.send('sw:event', { type: 'menu', action })
+  if (rendererReady) send()
+  else mainWindow?.webContents.once('did-finish-load', () => setTimeout(send, 300))
+}
+
+function createWindow(): void {
+  const state = loadWindowState()
+  rendererReady = false
+  mainWindow = new BrowserWindow({
+    x: state.x,
+    y: state.y,
+    width: state.width,
+    height: state.height,
+    minWidth: 380,
+    minHeight: 520,
+    show: false,
+    title: 'Studywise',
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 18, y: 22 },
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#121016' : '#f7f4ee',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      spellcheck: true
+    }
+  })
+  if (state.maximized) mainWindow.maximize()
+  trackWindowState(mainWindow)
+  mainWindow.once('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('closed', () => {
+    mainWindow = null
+    rendererReady = false
+  })
+
+  // No navigation away from the app and no popups; https links open in the browser.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//.test(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    const allowed = isDev ? url.startsWith(process.env.ELECTRON_RENDERER_URL!) : url.startsWith('file://')
+    if (!allowed) {
+      e.preventDefault()
+      if (/^https:\/\//.test(url)) void shell.openExternal(url)
+    }
+  })
+  mainWindow.webContents.on('did-finish-load', () => {
+    rendererReady = true
+    if (pendingFiles.length) {
+      const files = pendingFiles.splice(0)
+      setTimeout(() => mainWindow?.webContents.send('sw:event', { type: 'open-files', paths: files }), 500)
+    }
+  })
+
+  if (isDev) void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL!)
+  else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+}
+
+function updateBadge(): void {
+  try {
+    const n = repo.totalDueToday()
+    app.dock?.setBadge(n > 0 ? String(n) : '')
+  } catch {
+    /* db not ready */
+  }
+}
+
+function setupCsp(): void {
+  const csp = [
+    "default-src 'self'",
+    isDev ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: studywise-file:",
+    "font-src 'self' data:",
+    isDev ? "connect-src 'self' ws: http://localhost:*" : "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-src 'none'"
+  ].join('; ')
+  session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
+    cb({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [csp] } })
+  })
+  // No remote content at all: block any http(s) request that isn't the dev server.
+  session.defaultSession.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (details, cb) => {
+    const ok = isDev && details.url.startsWith(process.env.ELECTRON_RENDERER_URL!.replace(/\/$/, ''))
+    cb({ cancel: !ok && !details.url.startsWith('http://localhost') })
+  })
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'clipboard-sanitized-write' || permission === 'notifications'))
+}
+
+app.whenReady().then(async () => {
+  initPaths()
+  setupLogging()
+  app.setAboutPanelOptions({
+    applicationName: 'Studywise',
+    applicationVersion: app.getVersion(),
+    version: `Electron ${process.versions.electron}`,
+    credits: 'AI features run through your own Claude Code login.'
+  })
+  openDb(paths.db)
+  seedPresets()
+  aiQueue.setLimit(repo.getSetting<number>('ai.concurrency', 3))
+  setOverridePath(repo.getSetting<string | null>('claude.overridePath', null))
+  const theme = repo.getSetting<'system' | 'light' | 'dark'>('ui.theme', 'system')
+  nativeTheme.themeSource = theme
+
+  protocol.handle('studywise-file', (req) => {
+    const u = new URL(req.url)
+    const rel = normalize(decodeURIComponent(`${u.hostname}${u.pathname}`))
+    const full = join(paths.userData, rel)
+    if (!full.startsWith(paths.attachments)) return new Response('Forbidden', { status: 403 })
+    return net.fetch(pathToFileURL(full).toString())
+  })
+
+  setupCsp()
+  registerIpc()
+  setAfterCall((channel) => {
+    if (/^(cards|learn|decks)\./.test(channel)) updateBadge()
+    if (channel === 'settings.set') nativeTheme.themeSource = repo.getSetting<'system' | 'light' | 'dark'>('ui.theme', 'system')
+  })
+  buildMenu(sendMenu)
+
+  onJobEvent((ev) => {
+    if (ev.type === 'delta') {
+      broadcast({ type: 'job:delta', jobId: ev.jobId, text: ev.text })
+      return
+    }
+    broadcast({ type: 'job', job: ev.job })
+    const j = ev.job
+    if ((j.status === 'done' || j.status === 'error') && j.finishedAt) {
+      const focused = BrowserWindow.getFocusedWindow()
+      if (!focused && Notification.isSupported()) {
+        const n = new Notification({
+          title: j.status === 'done' ? 'Studywise: finished' : 'Studywise: failed',
+          body: j.status === 'done' ? `${j.title} is ready.` : `${j.title}: ${j.error ?? 'something went wrong'}`
+        })
+        n.on('click', () => {
+          showWindow()
+          mainWindow?.webContents.send('sw:event', { type: 'menu', action: 'go.jobs' })
+        })
+        n.show()
+      }
+      updateBadge()
+    }
+  })
+
+  createWindow()
+  updateBadge()
+  setInterval(updateBadge, 60_000)
+
+  // Find claude on the login-shell PATH (Finder-launched apps don't get it).
+  void detectClaude().then((s) => {
+    broadcast({ type: 'claude:status', status: s })
+    console.log('[claude]', s.path, s.version, s.loggedIn ? 'logged in' : 'not logged in')
+  })
+
+  app.on('activate', () => showWindow())
+  app.on('browser-window-focus', updateBadge)
+})
+
+// Keep running in the Dock when the window closes, so jobs keep going.
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})
