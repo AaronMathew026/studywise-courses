@@ -67,10 +67,10 @@ export function Decks({ folderId }: { folderId: string | null }) {
           title={folder?.name ?? 'Decks'}
           actions={
             <>
-              <Button icon={<Upload className="size-4" />} onClick={() => runCommand('io.importDeck')} kbd="io.importDeck">
+              <Button onClick={() => runCommand('io.importDeck')} kbd="io.importDeck">
                 Import
               </Button>
-              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => runCommand('deck.new')}>
+              <Button variant="primary" onClick={() => runCommand('deck.new')}>
                 New deck
               </Button>
             </>
@@ -109,7 +109,7 @@ export function Decks({ folderId }: { folderId: string | null }) {
           </button>
         </div>
         {shown.length === 0 ? (
-          <Empty icon={<Layers className="size-6" />} title={decks.length ? 'No decks match' : 'No decks yet'}>
+          <Empty title={decks.length ? 'No decks match' : 'No decks yet'}>
             {decks.length ? 'Try another filter.' : 'Create a deck, import a StudySmarter export, or drop a PDF to generate flashcards with AI.'}
             {!decks.length && (
               <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -121,45 +121,47 @@ export function Decks({ folderId }: { folderId: string | null }) {
             )}
           </Empty>
         ) : (
-          <div className="stagger grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3.5">
+          <div className="border-t border-line">
+            <div className="-mx-3 grid grid-cols-[1fr_90px_70px_120px_36px] items-center gap-4 px-3 py-2 text-[0.8rem] text-muted max-sm:grid-cols-[1fr_70px_36px]">
+              <span>Name</span>
+              <span className="text-right max-sm:hidden">Cards</span>
+              <span className="text-right">Due</span>
+              <span className="max-sm:hidden">Progress</span>
+              <span />
+            </div>
             {shown.map((d, i) => (
-              <Card key={d.id} onClick={() => go({ name: 'deck', id: d.id })} className={cx('group relative flex min-h-[170px] flex-col', i === sel && 'ring-2 ring-accent/60')}>
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-accent">
-                    <Layers className="size-5" />
-                  </span>
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <Menu
-                      trigger={(toggle) => (
-                        <Button variant="ghost" size="icon" onClick={toggle} aria-label="Deck menu">
-                          <MoreHorizontal className="size-4" />
-                        </Button>
-                      )}
-                    >
-                      {(close) => (
-                        <>
-                          <MenuItem icon={<Pencil className="size-4" />} onClick={() => (close(), renameDeck(d))}>
-                            Rename
-                          </MenuItem>
-                          <MenuItem icon={<FolderInput className="size-4" />} onClick={() => (close(), moveDeck(d))}>
-                            Move to folder
-                          </MenuItem>
-                          <MenuItem icon={<Trash2 className="size-4" />} danger onClick={() => (close(), deleteDeck(d))}>
-                            Delete
-                          </MenuItem>
-                        </>
-                      )}
-                    </Menu>
-                  </div>
+              <div
+                key={d.id}
+                onClick={() => go({ name: 'deck', id: d.id })}
+                className={cx(
+                  '-mx-3 grid cursor-pointer grid-cols-[1fr_90px_70px_120px_36px] items-center gap-4 rounded-md border-t border-line px-3 py-2.5 transition-colors hover:bg-surface-2/70 max-sm:grid-cols-[1fr_70px_36px]',
+                  i === sel && 'bg-accent-soft/60'
+                )}
+              >
+                <span className="min-w-0 truncate font-medium">{d.name}</span>
+                <span className="tabular text-right text-muted max-sm:hidden">{d.card_count}</span>
+                <span className={cx('tabular text-right', d.due_count ? 'text-accent' : 'text-muted/60')}>{d.due_count || '—'}</span>
+                <ProgressBar value={d.card_count ? 1 - d.due_count / d.card_count : 0} className="h-1 max-sm:hidden" />
+                <div onClick={(e) => e.stopPropagation()} className="flex justify-end">
+                  <Menu
+                    trigger={(toggle) => (
+                      <Button variant="ghost" size="icon" onClick={toggle} aria-label="Deck menu">
+                        <MoreHorizontal className="size-4" />
+                      </Button>
+                    )}
+                  >
+                    {(close) => (
+                      <>
+                        <MenuItem onClick={() => (close(), renameDeck(d))}>Rename</MenuItem>
+                        <MenuItem onClick={() => (close(), moveDeck(d))}>Move to folder</MenuItem>
+                        <MenuItem danger onClick={() => (close(), deleteDeck(d))}>
+                          Delete
+                        </MenuItem>
+                      </>
+                    )}
+                  </Menu>
                 </div>
-                <div className="mt-auto pt-4">
-                  <div className="truncate text-[1.1rem] font-semibold">{d.name}</div>
-                  <div className="mt-1 flex items-center gap-2 text-[0.85rem] text-muted">
-                    {d.card_count} card{d.card_count === 1 ? '' : 's'} {d.due_count > 0 && <Pill tone="accent">{d.due_count} due</Pill>}
-                  </div>
-                  <ProgressBar value={d.card_count ? 1 - d.due_count / d.card_count : 0} className="mt-3 h-1.5" />
-                </div>
-              </Card>
+              </div>
             ))}
           </div>
         )}
@@ -201,7 +203,7 @@ export function RailItem({
 }: {
   active: boolean
   onClick: () => void
-  icon: React.ReactNode
+  icon?: React.ReactNode
   label: string
   count?: number
   onRename?: () => void
@@ -210,7 +212,7 @@ export function RailItem({
   return (
     <div className={cx('group flex items-center rounded-full transition-colors duration-300', active ? 'bg-accent-soft' : 'hover:bg-surface-2')}>
       <button onClick={onClick} className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left text-[0.92rem] font-medium">
-        <span className={active ? 'text-accent' : 'text-muted'}>{icon}</span>
+        {icon && <span className={active ? 'text-accent' : 'text-muted'}>{icon}</span>}
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {count !== undefined && <span className="text-[0.8rem] text-muted">{count}</span>}
       </button>

@@ -46,6 +46,15 @@ module.exports = {
     { ext: 'docx', name: 'Word Document', role: 'Viewer', rank: 'Alternate' },
     { ext: 'pptx', name: 'PowerPoint Presentation', role: 'Viewer', rank: 'Alternate' }
   ],
+  // Lock down Electron: the app can't be run as plain Node or be driven via
+  // NODE_OPTIONS. STUDYWISE_DEBUG_BUILD=1 keeps --inspect for automated checks.
+  electronFuses: {
+    runAsNode: false,
+    enableNodeOptionsEnvironmentVariable: false,
+    enableNodeCliInspectArguments: !!process.env.STUDYWISE_DEBUG_BUILD,
+    onlyLoadAppFromAsar: true,
+    enableCookieEncryption: true
+  },
   dmg: {
     artifactName: 'Studywise.${ext}',
     title: 'Studywise',

@@ -366,7 +366,6 @@ function SetupBanner() {
       <Button
         size="sm"
         variant="ink"
-        icon={<Terminal className="size-3.5" />}
         loading={checking}
         onClick={async () => {
           setChecking(true)

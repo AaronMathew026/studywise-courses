@@ -142,7 +142,7 @@ export function Flashcards({ deckId, mode }: { deckId: string; mode: 'due' | 'al
               Start Learn
             </Button>
             {mode === 'due' && (
-              <Button icon={<RotateCcw className="size-4" />} onClick={() => go({ name: 'flashcards', deckId, mode: 'all' })}>
+              <Button onClick={() => go({ name: 'flashcards', deckId, mode: 'all' })}>
                 Review all cards
               </Button>
             )}
@@ -218,10 +218,10 @@ export function Flashcards({ deckId, mode }: { deckId: string; mode: 'due' | 'al
                 </Button>
               )}
               <div className="mt-3 flex justify-center gap-2">
-                <Button size="sm" variant="ghost" icon={<MessageCircleQuestion className="size-3.5" />} onClick={() => openExplain({ ctx: { cardId: card.id, deckId }, title: card.front.split('\n')[0] })}>
+                <Button size="sm" variant="ghost" onClick={() => openExplain({ ctx: { cardId: card.id, deckId }, title: card.front.split('\n')[0] })}>
                   Explain ⌘E
                 </Button>
-                <Button size="sm" variant="ghost" icon={<Pencil className="size-3.5" />} onClick={() => setEditing({ ...card })}>
+                <Button size="sm" variant="ghost" onClick={() => setEditing({ ...card })}>
                   Edit E
                 </Button>
               </div>

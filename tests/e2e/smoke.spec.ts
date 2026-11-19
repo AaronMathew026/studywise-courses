@@ -33,7 +33,7 @@ async function addCard(front: string, back: string) {
 }
 
 test('create a deck, add cards, and finish a Learn session', async () => {
-  await expect(win.getByRole('heading', { level: 1 })).toContainText(/Good|Late night/)
+  await expect(win.getByRole('heading', { level: 1 })).toContainText(/first deck|due/)
 
   // New deck
   await win.getByRole('button', { name: /New deck/ }).first().click()

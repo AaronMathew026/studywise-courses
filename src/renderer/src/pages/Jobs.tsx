@@ -37,7 +37,7 @@ export function Jobs() {
         eyebrow="Background"
         title="Jobs"
         actions={
-          <Button icon={<Trash2 className="size-4" />} onClick={() => api.jobs.clear().then(() => api.jobs.list()).then((j) => useStore.getState().setJobs(j))}>
+          <Button onClick={() => api.jobs.clear().then(() => api.jobs.list()).then((j) => useStore.getState().setJobs(j))}>
             Clear finished
           </Button>
         }
@@ -45,7 +45,7 @@ export function Jobs() {
         Long AI jobs keep running when you close the window. Studywise stays in the Dock and notifies you when they finish.
       </PageTitle>
       {jobs.length === 0 ? (
-        <Empty icon={<Layers className="size-6" />} title="No jobs yet">
+        <Empty title="No jobs yet">
           Generate notes or flashcards and they’ll show up here with live progress.
         </Empty>
       ) : (
@@ -67,7 +67,7 @@ export function Jobs() {
                 </div>
                 <Pill>{elapsed(j)}</Pill>
                 {j.status === 'running' && (
-                  <Button size="sm" variant="danger" icon={<Square className="size-3.5" />} onClick={() => api.jobs.cancel({ id: j.id })}>
+                  <Button size="sm" variant="danger" onClick={() => api.jobs.cancel({ id: j.id })}>
                     Cancel
                   </Button>
                 )}
@@ -75,7 +75,6 @@ export function Jobs() {
                   <Button
                     size="sm"
                     variant="primary"
-                    icon={<Eye className="size-3.5" />}
                     onClick={() => {
                       const r = j.result as { cards: never[]; presetName: string }
                       useStore.getState().openPreview({ cards: r.cards, deckId: null, jobId: j.id, presetName: r.presetName })
@@ -85,7 +84,7 @@ export function Jobs() {
                   </Button>
                 )}
                 {typeof j.meta?.noteId === 'string' && (
-                  <Button size="sm" variant="soft" icon={<FileText className="size-3.5" />} onClick={() => go({ name: 'notes', id: j.meta.noteId as string })}>
+                  <Button size="sm" variant="soft" onClick={() => go({ name: 'notes', id: j.meta.noteId as string })}>
                     Open note
                   </Button>
                 )}

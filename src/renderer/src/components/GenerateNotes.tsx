@@ -75,7 +75,7 @@ export function GenerateNotesModal() {
           <Button variant="ghost" onClick={close}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={submit} loading={busy} icon={<NotebookPen className="size-4" />} kbd="gen.submit">
+          <Button variant="primary" onClick={submit} loading={busy} kbd="gen.submit">
             Write notes
           </Button>
         </>

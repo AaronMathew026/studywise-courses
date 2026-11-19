@@ -37,6 +37,16 @@ export interface CliResult {
   raw: string
 }
 
+type RateLimitInfo = Record<string, unknown>
+const rateListeners = new Set<(info: RateLimitInfo) => void>()
+export function onRateLimit(fn: (info: RateLimitInfo) => void): () => void {
+  rateListeners.add(fn)
+  return () => rateListeners.delete(fn)
+}
+export function emitRateLimit(info: RateLimitInfo): void {
+  rateListeners.forEach((l) => l(info))
+}
+
 export class CliError extends Error {
   constructor(
     message: string,
@@ -53,8 +63,10 @@ export function makeWorkDir(): string {
 
 /** Build the argument list. Exported for tests. */
 export function buildArgs(req: CliRequest): string[] {
-  const args = ['-p', '--output-format', req.stream ? 'stream-json' : 'json']
-  if (req.stream) args.push('--verbose', '--include-partial-messages')
+  // Always stream-json: it carries rate_limit_event lines (plan usage) as well
+  // as the final result envelope.
+  const args = ['-p', '--output-format', 'stream-json', '--verbose']
+  if (req.stream) args.push('--include-partial-messages')
   args.push('--model', req.model)
   if (req.effort) args.push('--effort', req.effort)
   if (req.system) args.push('--system-prompt', req.system)
@@ -139,40 +151,27 @@ export function runClaude(req: CliRequest): Promise<CliResult> {
         }
       } else if (ev.type === 'result') {
         finalEnvelope = ev
+      } else if (ev.type === 'rate_limit_event' && ev.rate_limit_info) {
+        emitRateLimit(ev.rate_limit_info as RateLimitInfo)
       }
     }
 
     child.stdout!.setEncoding('utf8')
     child.stdout!.on('data', (chunk: string) => {
       stdout += chunk
-      if (req.stream) {
-        lineBuf += chunk
-        let i: number
-        while ((i = lineBuf.indexOf('\n')) !== -1) {
-          handleLine(lineBuf.slice(0, i))
-          lineBuf = lineBuf.slice(i + 1)
-        }
+      lineBuf += chunk
+      let i: number
+      while ((i = lineBuf.indexOf('\n')) !== -1) {
+        handleLine(lineBuf.slice(0, i))
+        lineBuf = lineBuf.slice(i + 1)
       }
     })
     child.stderr!.setEncoding('utf8')
     child.stderr!.on('data', (c: string) => (stderr += c))
     child.on('error', (e) => finish(() => reject(new CliError(`claude failed to start: ${e.message}`, 'not_installed'))))
     child.on('close', (code) => {
-      if (req.stream && lineBuf) handleLine(lineBuf)
-      let env: Record<string, unknown> | null = finalEnvelope
-      if (!req.stream) {
-        try {
-          env = JSON.parse(stdout.trim())
-        } catch {
-          // Some versions print a JSON array of events.
-          try {
-            const arr = JSON.parse(stdout.trim()) as Record<string, unknown>[]
-            env = Array.isArray(arr) ? (arr.find((x) => x.type === 'result') ?? null) : null
-          } catch {
-            env = null
-          }
-        }
-      }
+      if (lineBuf) handleLine(lineBuf)
+      const env: Record<string, unknown> | null = finalEnvelope
       if (!env) {
         const msg = (stderr || stdout).trim().slice(0, 800) || `claude exited with code ${code}`
         const kind = /not logged in|login|authenticat|\/login/i.test(msg) ? 'not_logged_in' : TRANSIENT.test(msg) ? 'transient' : 'failed'

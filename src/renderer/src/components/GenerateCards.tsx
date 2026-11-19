@@ -104,7 +104,7 @@ export function GenerateCardsModal() {
           <Button variant="ghost" onClick={close}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={submit} loading={busy} icon={<Sparkles className="size-4" />} kbd="gen.submit">
+          <Button variant="primary" onClick={submit} loading={busy} kbd="gen.submit">
             Generate
           </Button>
         </>
@@ -278,7 +278,7 @@ export function CardPreviewModal() {
           {warnings.length > 0 && (
             <>
               <Toggle checked={onlyWarnings} onChange={setOnlyWarnings} label="Only cards with warnings" />
-              <Button variant="soft" icon={<Wand2 className="size-4" />} onClick={fixAll} disabled={busyKeys.size > 0} kbd="gen.fixAll">
+              <Button variant="soft" onClick={fixAll} disabled={busyKeys.size > 0} kbd="gen.fixAll">
                 Fix all with AI
               </Button>
             </>
@@ -315,14 +315,14 @@ export function CardPreviewModal() {
                 ))}
                 <span className="flex-1" />
                 {w.length > 0 && (
-                  <Button size="sm" variant="soft" icon={<Wand2 className="size-3.5" />} onClick={() => fix(c)} loading={busy}>
+                  <Button size="sm" variant="soft" onClick={() => fix(c)} loading={busy}>
                     Fix with AI
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" icon={<RefreshCw className="size-3.5" />} onClick={() => fix(c, true)} disabled={busy}>
+                <Button size="sm" variant="ghost" onClick={() => fix(c, true)} disabled={busy}>
                   Regenerate
                 </Button>
-                <Button size="sm" variant="ghost" icon={<Trash2 className="size-3.5" />} onClick={() => setCards((cur) => cur.filter((x) => x.key !== c.key))}>
+                <Button size="sm" variant="ghost" onClick={() => setCards((cur) => cur.filter((x) => x.key !== c.key))}>
                   Delete
                 </Button>
               </div>
@@ -350,7 +350,6 @@ export function CardPreviewModal() {
         })}
         <Button
           variant="ghost"
-          icon={<Plus className="size-4" />}
           onClick={() => setCards((cur) => [...cur, { key: `n${Date.now()}`, format: 'question_answer', kind: 'regular', front: '', back: '', options: [], cloze_answers: [], tags: [], hints: [], explanation: '' }])}
           className="self-start"
         >

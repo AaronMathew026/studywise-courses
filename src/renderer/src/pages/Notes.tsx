@@ -108,10 +108,10 @@ export function Notes({ noteId }: { noteId: string | null }) {
       <aside className={cx('flex shrink-0 flex-col overflow-hidden border-r border-line transition-[width,opacity] duration-500 ease-out-soft max-md:hidden', rail ? 'w-[290px] opacity-100' : 'w-0 opacity-0')}>
         <div className="flex w-[290px] flex-col gap-2 p-4 pb-2">
           <div className="flex gap-2">
-            <Button variant="primary" size="sm" className="flex-1 justify-center" icon={<Plus className="size-4" />} onClick={() => runCommand('note.new')}>
+            <Button variant="primary" size="sm" className="flex-1 justify-center" onClick={() => runCommand('note.new')}>
               New note
             </Button>
-            <Button size="sm" icon={<Sparkles className="size-4" />} onClick={() => runCommand('gen.notes')} title="Generate notes with AI (⇧⌘G)">
+            <Button size="sm" onClick={() => runCommand('gen.notes')} title="Generate notes with AI (⇧⌘G)">
               AI
             </Button>
             <Button size="icon" variant="ghost" onClick={() => runCommand('io.importNotes')} title="Import Markdown / Notion (⌥⌘I)">
@@ -136,13 +136,12 @@ export function Notes({ noteId }: { noteId: string | null }) {
               <FolderPlus className="size-4" />
             </button>
           </div>
-          <RailItem active={!folderId} onClick={() => setFolderId(null)} icon={<FileText className="size-4" />} label="All notes" count={notes.length} />
+          <RailItem active={!folderId} onClick={() => setFolderId(null)} label="All notes" count={notes.length} />
           {folders.map((f) => (
             <RailItem
               key={f.id}
               active={folderId === f.id}
               onClick={() => setFolderId(f.id)}
-              icon={<FolderIcon className="size-4" />}
               label={f.name}
               count={notes.filter((n) => n.folder_id === f.id).length}
               onRename={async () => {
@@ -181,10 +180,10 @@ export function Notes({ noteId }: { noteId: string | null }) {
           <NoteEditor key={noteId} id={noteId} writingJobId={writing?.id ?? null} folders={folders} onChanged={load} />
         ) : (
           <div className="mx-auto max-w-xl p-8">
-            <Empty icon={<FileText className="size-6" />} title={notes.length ? 'Pick a note' : 'No notes yet'}>
+            <Empty title={notes.length ? 'Pick a note' : 'No notes yet'}>
               Write notes by hand, import Markdown or a Notion export, or drop a PDF to have AI write structured notes in your style.
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                <Button variant="primary" icon={<Sparkles className="size-4" />} onClick={() => runCommand('gen.notes')}>
+                <Button variant="primary" onClick={() => runCommand('gen.notes')}>
                   Generate with AI
                 </Button>
                 <Button onClick={() => runCommand('note.new')}>New note</Button>
@@ -378,7 +377,7 @@ function NoteEditor({ id, writingJobId, folders, onChanged }: { id: string; writ
               { value: 'preview', label: <Eye className="size-4" /> }
             ]}
           />
-          <Button size="sm" variant="primary" icon={<Layers className="size-3.5" />} onClick={cardsFromNote} title="Generate flashcards from this note (⇧⌥⌘G)">
+          <Button size="sm" variant="primary" onClick={cardsFromNote} title="Generate flashcards from this note (⇧⌥⌘G)">
             Make flashcards
           </Button>
           <Menu
@@ -390,17 +389,16 @@ function NoteEditor({ id, writingJobId, folders, onChanged }: { id: string; writ
           >
             {(close) => (
               <>
-                <MenuItem icon={<AlignLeft className="size-4" />} kbd="ai.fixFormatting" onClick={() => (close(), runQuick('fix_formatting'))}>
+                <MenuItem kbd="ai.fixFormatting" onClick={() => (close(), runQuick('fix_formatting'))}>
                   Fix formatting (whole note)
                 </MenuItem>
-                <MenuItem icon={<MessageCircleQuestion className="size-4" />} kbd="ai.explain" onClick={() => (close(), runCommand('ai.explain'))}>
+                <MenuItem kbd="ai.explain" onClick={() => (close(), runCommand('ai.explain'))}>
                   Explain this note
                 </MenuItem>
-                <MenuItem icon={<Download className="size-4" />} kbd="io.exportNote" onClick={() => (close(), runCommand('io.exportNote'))}>
+                <MenuItem kbd="io.exportNote" onClick={() => (close(), runCommand('io.exportNote'))}>
                   Export as Markdown
                 </MenuItem>
                 <MenuItem
-                  icon={<FolderIcon className="size-4" />}
                   onClick={async () => {
                     close()
                     const v = await chooseDialog('Move to folder', [{ value: '', label: 'No folder' }, ...folders.map((f) => ({ value: f.id, label: f.name }))], { initial: note.folder_id ?? '' })
@@ -410,7 +408,6 @@ function NoteEditor({ id, writingJobId, folders, onChanged }: { id: string; writ
                   Move to folder
                 </MenuItem>
                 <MenuItem
-                  icon={<Trash2 className="size-4" />}
                   danger
                   onClick={async () => {
                     close()
@@ -498,14 +495,14 @@ function NoteEditor({ id, writingJobId, folders, onChanged }: { id: string; writ
             />
             {sel && !suggestion && (
               <div className="pop-in absolute z-20 flex flex-wrap items-center gap-0.5 rounded-full border border-line bg-surface p-1 shadow-xl" style={{ top: Math.max(0, sel.top), left: sel.left }} onMouseDown={(e) => e.preventDefault()}>
-                <ToolBtn icon={<MessageCircleQuestion className="size-3.5" />} label="Explain" onClick={explainSel} />
-                <ToolBtn icon={<Minimize2 className="size-3.5" />} label="Simplify" onClick={() => runQuick('simplify')} k="⌥⌘1" />
-                <ToolBtn icon={<Maximize2 className="size-3.5" />} label="Expand" onClick={() => runQuick('expand')} k="⌥⌘2" />
-                <ToolBtn icon={<AlignLeft className="size-3.5" />} label="Shorten" onClick={() => runQuick('shorten')} k="⌥⌘3" />
-                <ToolBtn icon={<Layers className="size-3.5" />} label="Flashcards" onClick={cardsFromSel} k="⌥⌘G" />
-                <ToolBtn icon={<Brain className="size-3.5" />} label="Quiz me" onClick={quizSel} k="⌥⌘Q" />
+                <ToolBtn label="Explain" onClick={explainSel} />
+                <ToolBtn label="Simplify" onClick={() => runQuick('simplify')} k="⌥⌘1" />
+                <ToolBtn label="Expand" onClick={() => runQuick('expand')} k="⌥⌘2" />
+                <ToolBtn label="Shorten" onClick={() => runQuick('shorten')} k="⌥⌘3" />
+                <ToolBtn label="Flashcards" onClick={cardsFromSel} k="⌥⌘G" />
+                <ToolBtn label="Quiz me" onClick={quizSel} k="⌥⌘Q" />
                 {actions.map((a) => (
-                  <ToolBtn key={a.id} icon={<Sparkles className="size-3.5" />} label={a.name} onClick={() => openExplain({ ctx: { noteId: id, selection: sel.text }, title: sel.text.slice(0, 60), action: { id: a.id, name: a.name } })} />
+                  <ToolBtn key={a.id} label={a.name} onClick={() => openExplain({ ctx: { noteId: id, selection: sel.text }, title: sel.text.slice(0, 60), action: { id: a.id, name: a.name } })} />
                 ))}
               </div>
             )}
@@ -538,7 +535,7 @@ function NoteEditor({ id, writingJobId, folders, onChanged }: { id: string; writ
             <Button size="sm" disabled={suggestion.streaming} onClick={() => applySuggestion('below')}>
               Insert below
             </Button>
-            <Button size="sm" variant="ghost" icon={<Copy className="size-3.5" />} disabled={suggestion.streaming} onClick={() => (navigator.clipboard.writeText(suggestion.text), toast('Copied', 'good'))}>
+            <Button size="sm" variant="ghost" disabled={suggestion.streaming} onClick={() => (navigator.clipboard.writeText(suggestion.text), toast('Copied', 'good'))}>
               Copy
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setSuggestion(null)}>
@@ -551,7 +548,7 @@ function NoteEditor({ id, writingJobId, folders, onChanged }: { id: string; writ
   )
 }
 
-function ToolBtn({ icon, label, onClick, k }: { icon: React.ReactNode; label: string; onClick: () => void; k?: string }) {
+function ToolBtn({ icon, label, onClick, k }: { icon?: React.ReactNode; label: string; onClick: () => void; k?: string }) {
   return (
     <button onClick={onClick} title={k ? `${label} (${k})` : label} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[0.82rem] font-semibold transition-colors hover:bg-accent-soft">
       {icon}

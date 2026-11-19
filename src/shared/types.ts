@@ -214,3 +214,15 @@ export interface ClaudeStatus {
   overridePath: string | null
   mock: boolean
 }
+
+export interface UsageWindow {
+  utilization: number // 0..1
+  resetsAt: number | null // unix seconds
+  status: string
+}
+export interface UsageLimits {
+  fiveHour: UsageWindow | null
+  sevenDay: UsageWindow | null
+  status: string
+  updatedAt: string
+}

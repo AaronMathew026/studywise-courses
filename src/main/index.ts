@@ -13,6 +13,7 @@ import { loadWindowState, trackWindowState } from './windowState'
 import { onJobEvent } from './jobs'
 import * as repo from './db/repo'
 import { SUPPORTED_SOURCE_EXT } from './files'
+import { startUsageTracking, onUsage } from './usage'
 
 // ---- logging to ~/Library/Application Support/Studywise/logs/main.log ----
 function setupLogging(): void {
@@ -39,7 +40,9 @@ let rendererReady = false
 const isDev = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL
 
 // Single instance: a second launch focuses the existing window.
-if (!app.requestSingleInstanceLock()) {
+const gotLock = app.requestSingleInstanceLock()
+process.stderr.write(`[studywise] single instance lock: ${gotLock ? 'acquired' : 'held by another instance'} (${app.getPath('userData')})\n`)
+if (!gotLock) {
   app.quit()
 } else {
   app.on('second-instance', (_e, argv) => {
@@ -203,6 +206,8 @@ app.whenReady().then(async () => {
   })
 
   setupCsp()
+  startUsageTracking()
+  onUsage((usage) => broadcast({ type: 'usage', usage }))
   registerIpc()
   setAfterCall((channel) => {
     if (/^(cards|learn|decks)\./.test(channel)) updateBadge()

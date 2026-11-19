@@ -36,6 +36,7 @@ import { confirmDialog, askText } from '../lib/dialogs'
 import { Shell, PageTitle } from '../components/Shell'
 import { Button, Card, Field, Input, Modal, Pill, Segmented, Select, Textarea, Toggle, cx, Kbd } from '../components/ui'
 import { Markdown } from '../components/Markdown'
+import { UsageBars } from '../components/UsageMeter'
 
 const TABS = [
   { id: 'general', label: 'General', icon: Gear },
@@ -173,13 +174,13 @@ function General() {
           Everything lives in <code className="font-mono text-[0.85em]">{info?.userData}</code>: the database, attachments, cache and logs.
         </p>
         <div className="flex flex-wrap gap-2">
-          <Button icon={<FolderOpen className="size-4" />} onClick={() => api.app.showDataFolder()}>
+          <Button onClick={() => api.app.showDataFolder()}>
             Show data folder in Finder
           </Button>
-          <Button icon={<Download className="size-4" />} onClick={async () => (await api.app.backup()) && toast('Backup saved', 'good')}>
+          <Button onClick={async () => (await api.app.backup()) && toast('Backup saved', 'good')}>
             Back up (.zip)
           </Button>
-          <Button icon={<Upload className="size-4" />} onClick={() => api.app.restore().catch((e) => toast(errorText(e), 'bad'))}>
+          <Button onClick={() => api.app.restore().catch((e) => toast(errorText(e), 'bad'))}>
             Restore…
           </Button>
         </div>
@@ -228,10 +229,10 @@ function ClaudeTab() {
           <dd className="font-mono text-[0.85rem] break-all">{claude?.overridePath ?? 'none (auto-detect)'}</dd>
         </dl>
         <div className="flex flex-wrap gap-2">
-          <Button variant="primary" icon={<RefreshCw className="size-4" />} loading={busy} onClick={recheck}>
+          <Button variant="primary" loading={busy} onClick={recheck}>
             Re-check
           </Button>
-          <Button icon={<FolderOpen className="size-4" />} onClick={async () => setClaude(await api.claude.choose())}>
+          <Button onClick={async () => setClaude(await api.claude.choose())}>
             Choose…
           </Button>
           {claude?.overridePath && (
@@ -278,7 +279,6 @@ function ModelsTab() {
         </div>
         <Button
           variant="ghost"
-          icon={<RotateCcw className="size-4" />}
           onClick={async () => {
             await api.models.reset()
             setModels(await api.models.get())
@@ -319,7 +319,7 @@ function ModelsTab() {
               ))}
             </Select>
             <div className="flex items-center gap-2">
-              <Button size="sm" icon={<Play className="size-3.5" />} loading={r === 'running'} onClick={() => test(t)}>
+              <Button size="sm" loading={r === 'running'} onClick={() => test(t)}>
                 Test
               </Button>
               {r && r !== 'running' && (
@@ -458,12 +458,11 @@ function PromptsTab() {
     <div className="grid gap-4 xl:grid-cols-[260px_1fr]">
       <div className="flex flex-col gap-4">
         <div className="flex gap-2">
-          <Button size="sm" icon={<Download className="size-3.5" />} onClick={async () => (await api.presets.exportFile()) && toast('Exported presets & actions', 'good')}>
+          <Button size="sm" onClick={async () => (await api.presets.exportFile()) && toast('Exported presets & actions', 'good')}>
             Export
           </Button>
           <Button
             size="sm"
-            icon={<Upload className="size-3.5" />}
             onClick={async () => {
               try {
                 const r = await api.presets.importFile()
@@ -507,7 +506,7 @@ function PromptsTab() {
                   <Star className="size-3" /> Default
                 </Pill>
               ) : (
-                <Button size="sm" variant="soft" icon={<Star className="size-3.5" />} onClick={async () => (await api.presets.setDefault({ id: preset.id }), loadPresets(preset.id))}>
+                <Button size="sm" variant="soft" onClick={async () => (await api.presets.setDefault({ id: preset.id }), loadPresets(preset.id))}>
                   Make default
                 </Button>
               )}
@@ -516,7 +515,6 @@ function PromptsTab() {
               <Button
                 size="sm"
                 variant="ghost"
-                icon={<Copy className="size-3.5" />}
                 onClick={async () => {
                   const name = await askText('Duplicate preset', { initial: `${preset.name} (copy)` })
                   if (name) {
@@ -527,14 +525,13 @@ function PromptsTab() {
               >
                 Duplicate
               </Button>
-              <Button size="sm" variant="ghost" icon={<History className="size-3.5" />} onClick={async () => setVersions(await api.presets.versions({ id: preset.id }))}>
+              <Button size="sm" variant="ghost" onClick={async () => setVersions(await api.presets.versions({ id: preset.id }))}>
                 History
               </Button>
               {preset.builtin_key ? (
                 <Button
                   size="sm"
                   variant="ghost"
-                  icon={<RotateCcw className="size-3.5" />}
                   onClick={async () => {
                     if (await confirmDialog('Reset to the built-in version?', 'Your edits stay in the history.')) {
                       await api.presets.reset({ id: preset.id })
@@ -548,7 +545,6 @@ function PromptsTab() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  icon={<Trash2 className="size-3.5" />}
                   onClick={async () => {
                     if (await confirmDialog(`Delete “${preset.name}”?`, undefined, { danger: true })) {
                       await api.presets.delete({ id: preset.id })
@@ -559,7 +555,7 @@ function PromptsTab() {
                   Delete
                 </Button>
               )}
-              <Button size="sm" variant="primary" icon={<Save className="size-3.5" />} disabled={!dirty} onClick={save}>
+              <Button size="sm" variant="primary" disabled={!dirty} onClick={save}>
                 Save
               </Button>
             </div>
@@ -619,7 +615,7 @@ function PromptsTab() {
             <Card className="flex min-w-0 flex-col gap-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">Test run</h3>
-                <Button variant="primary" size="sm" icon={<Play className="size-3.5" />} loading={testing} onClick={runTest} disabled={!vars}>
+                <Button variant="primary" size="sm" loading={testing} onClick={runTest} disabled={!vars}>
                   Run with Claude
                 </Button>
               </div>
@@ -702,7 +698,7 @@ function ActionsTab() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-2xl text-muted">Your own AI buttons. Each one renders its prompt with the card or selection and either shows Markdown in the Explain panel or makes new cards.</p>
-        <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEdit({ name: '', prompt: 'Q: {{front}}\nA: {{back}}\n{{source_text}}\n\n', model: 'sonnet', output: 'markdown', placements: ['card'], icon: 'sparkles' })}>
+        <Button variant="primary" onClick={() => setEdit({ name: '', prompt: 'Q: {{front}}\nA: {{back}}\n{{source_text}}\n\n', model: 'sonnet', output: 'markdown', placements: ['card'], icon: 'sparkles' })}>
           New action
         </Button>
       </div>
@@ -824,6 +820,10 @@ function UsageTab() {
   const totalOut = summary.reduce((n, s) => n + s.output_tokens, 0)
   return (
     <div className="flex flex-col gap-4">
+      <Card>
+        <h3 className="mb-3 font-semibold">Claude plan usage</h3>
+        <UsageBars />
+      </Card>
       <div className="grid gap-3 sm:grid-cols-3">
         <Card>
           <div className="text-[0.75rem] font-semibold text-muted">Calls</div>
@@ -841,7 +841,7 @@ function UsageTab() {
       <Card className="!p-0 overflow-x-auto">
         <div className="flex items-center justify-between px-5 py-3">
           <h3 className="font-semibold">By task</h3>
-          <Button size="sm" variant="ghost" icon={<RefreshCw className="size-3.5" />} onClick={load}>
+          <Button size="sm" variant="ghost" onClick={load}>
             Refresh
           </Button>
         </div>

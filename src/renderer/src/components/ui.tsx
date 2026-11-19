@@ -221,8 +221,8 @@ export function Card({ children, className, onClick, ...rest }: { children: Reac
 
 export function Pill({ children, tone = 'neutral', className }: { children: ReactNode; tone?: 'neutral' | 'accent' | 'good' | 'warn' | 'bad'; className?: string }) {
   const tones = {
-    neutral: 'bg-surface-2 text-muted',
-    accent: 'bg-accent-soft text-accent',
+    neutral: 'text-muted px-0',
+    accent: 'text-accent px-0',
     good: 'bg-good-soft text-good',
     warn: 'bg-warn-soft text-warn',
     bad: 'bg-bad-soft text-bad'

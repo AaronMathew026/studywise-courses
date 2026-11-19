@@ -3,6 +3,7 @@ import { Search, Plus } from 'lucide-react'
 import { useStore, type Route } from '../lib/store'
 import { cx, Kbd } from './ui'
 import { runCommand } from '../lib/commands'
+import { UsageMeter } from './UsageMeter'
 
 // Top navigation. Hovering a link sends three soft blobs after it at slightly
 // different speeds; an SVG goo filter (in index.html) melts them together.
@@ -105,6 +106,7 @@ export function GooNav() {
         </div>
         <div className="flex-1" />
 
+        <UsageMeter />
         <button
           onClick={() => runCommand('palette')}
           className="no-drag hidden h-8 items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-[0.85rem] text-muted transition-colors hover:text-ink sm:flex"

@@ -95,13 +95,15 @@ export function ExplainPanel() {
     }
   }
 
+  // Only run when asked: a plain "Explain" open waits for a button press.
+  // Opening with a specific request (a quick mode or a custom action) runs it.
   useEffect(() => {
     explanationId.current = null
     setMsgs([])
     setInput('')
     if (!open) return
     if (open.action) void runAction(open.action)
-    else void runMode(open.mode ?? 'explain', open.mode && open.mode !== 'explain' ? QUICK.find((q) => q.mode === open.mode)?.label ?? 'Explain' : 'Explain')
+    else if (open.mode && open.mode !== 'explain') void runMode(open.mode, QUICK.find((q) => q.mode === open.mode)?.label ?? 'Explain')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -112,8 +114,12 @@ export function ExplainPanel() {
   const send = async () => {
     const text = input.trim()
     if (!text || busy) return
-    if (!explanationId.current) return toast('Wait for the first explanation to finish', 'info')
+    if (busy) return
     setInput('')
+    if (!explanationId.current) {
+      append({ role: 'user', content: text })
+      return void runMode(text, '')
+    }
     append({ role: 'user', content: text })
     append({ role: 'assistant', content: '', streaming: true })
     setBusy(true)
@@ -151,6 +157,7 @@ export function ExplainPanel() {
           'ai.example': () => !busy && runMode('example', 'Give an example'),
           'ai.diagram': () => !busy && runMode('diagram', 'Show a diagram'),
           'ai.whyWrong': () => !busy && runMode('why_wrong', 'Why is my answer wrong'),
+          'ai.explain': () => !busy && runMode('explain', 'Explain'),
           'ai.saveExplanation': open.ctx.cardId ? save : null
         }
       : {},
@@ -173,6 +180,17 @@ export function ExplainPanel() {
       </div>
 
       <div ref={scroller} className="flex-1 space-y-4 overflow-y-auto px-5 pb-4">
+        {msgs.length === 0 && !open.action && (
+          <div className="fade-in flex flex-col items-start gap-3 pt-2">
+            {(open.ctx.selection || open.ctx.question) && (
+              <blockquote className="line-clamp-6 border-l-2 border-line pl-3 text-[0.92rem] text-muted">{open.ctx.selection ?? open.ctx.question}</blockquote>
+            )}
+            <p className="text-[0.92rem] text-muted">Nothing is generated until you ask. Pick one of the options below, or type a question.</p>
+            <Button variant="primary" onClick={() => runMode('explain', 'Explain')} kbd="ai.explain">
+              Explain
+            </Button>
+          </div>
+        )}
         {msgs.map((m, i) =>
           m.role === 'user' ? (
             <div key={i} className="pop-in ml-10 rounded-xl rounded-br-sm bg-accent px-4 py-2.5 text-accent-ink">
@@ -201,13 +219,13 @@ export function ExplainPanel() {
       <div className="border-t border-line bg-surface/60 px-4 pt-3 pb-4">
         {!open.action && (
           <div className="mb-3 flex flex-wrap gap-1.5">
-            {QUICK.filter((q) => q.mode !== 'why_wrong' || open.ctx.userAnswer || open.ctx.cardId).map((q, i) => (
+            {QUICK.filter((q) => q.mode !== 'why_wrong' || open.ctx.userAnswer || open.ctx.cardId).map((q) => (
               <button
                 key={q.mode}
                 disabled={busy}
                 onClick={() => runMode(q.mode, q.label)}
                 className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-[0.82rem] font-semibold transition-[transform,background] duration-300 hover:bg-accent-soft active:scale-95 disabled:opacity-40"
-                title={`⌥${i + 1}`}
+                title={`⌥${QUICK.indexOf(q) + 1}`}
               >
                 <q.icon className="size-3.5" /> {q.label}
               </button>
@@ -225,7 +243,7 @@ export function ExplainPanel() {
                 void send()
               }
             }}
-            placeholder="Ask a follow-up…"
+            placeholder={explanationId.current ? 'Ask a follow-up…' : 'Ask about this card…'}
             className="max-h-36 min-h-10 resize-none"
           />
           <Button variant="primary" size="icon" onClick={send} disabled={busy || !input.trim()} aria-label="Send">
@@ -234,11 +252,11 @@ export function ExplainPanel() {
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {open.ctx.cardId && (
-            <Button size="sm" variant="soft" icon={<Save className="size-3.5" />} onClick={save} disabled={!lastText}>
+            <Button size="sm" variant="soft" onClick={save} disabled={!lastText}>
               Save to card
             </Button>
           )}
-          <Button size="sm" variant="soft" icon={<Layers className="size-3.5" />} onClick={makeCards} disabled={!lastText}>
+          <Button size="sm" variant="soft" onClick={makeCards} disabled={!lastText}>
             Make cards from this
           </Button>
           <span className="ml-auto hidden text-[0.75rem] text-muted sm:inline">

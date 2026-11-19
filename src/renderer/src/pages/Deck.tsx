@@ -189,40 +189,40 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
         title={deck.name}
         actions={
           <>
-            <Button variant="primary" size="lg" icon={<Brain className="size-5" />} onClick={() => go({ name: 'learn', deckId: id })} disabled={!cards.length} kbd="study.learn">
+            <Button variant="primary" size="lg" onClick={() => go({ name: 'learn', deckId: id })} disabled={!cards.length} kbd="study.learn">
               Learn
             </Button>
-            <Button size="lg" icon={<Layers className="size-5" />} onClick={() => go({ name: 'flashcards', deckId: id, mode: 'due' })} disabled={!cards.length} kbd="study.flashcards">
+            <Button size="lg" onClick={() => go({ name: 'flashcards', deckId: id, mode: 'due' })} disabled={!cards.length} kbd="study.flashcards">
               Flashcards
             </Button>
             <Menu
               trigger={(t) => (
-                <Button size="lg" variant="ghost" icon={<Settings2 className="size-5" />} onClick={t} aria-label="More">
+                <Button size="lg" variant="ghost" onClick={t} aria-label="More">
                   More
                 </Button>
               )}
             >
               {(close) => (
                 <>
-                  <MenuItem icon={<Sparkles className="size-4" />} kbd="gen.cards" onClick={() => (close(), runCommand('gen.cards'))}>
+                  <MenuItem kbd="gen.cards" onClick={() => (close(), runCommand('gen.cards'))}>
                     Generate cards with AI
                   </MenuItem>
-                  <MenuItem icon={<Upload className="size-4" />} kbd="io.importCards" onClick={() => (close(), importInto())}>
+                  <MenuItem kbd="io.importCards" onClick={() => (close(), importInto())}>
                     Import cards (.txt .xlsx .csv .json)
                   </MenuItem>
-                  <MenuItem icon={<Download className="size-4" />} kbd="io.exportTxt" onClick={() => (close(), exportAs('txt'))}>
+                  <MenuItem kbd="io.exportTxt" onClick={() => (close(), exportAs('txt'))}>
                     Export StudySmarter text
                   </MenuItem>
-                  <MenuItem icon={<Download className="size-4" />} kbd="io.exportXlsx" onClick={() => (close(), exportAs('xlsx'))}>
+                  <MenuItem kbd="io.exportXlsx" onClick={() => (close(), exportAs('xlsx'))}>
                     Export StudySmarter Excel
                   </MenuItem>
-                  <MenuItem icon={<Download className="size-4" />} onClick={() => (close(), exportAs('json'))}>
+                  <MenuItem onClick={() => (close(), exportAs('json'))}>
                     Export JSON
                   </MenuItem>
-                  <MenuItem icon={<Download className="size-4" />} onClick={() => (close(), exportAs('csv'))}>
+                  <MenuItem onClick={() => (close(), exportAs('csv'))}>
                     Export CSV
                   </MenuItem>
-                  <MenuItem icon={<Settings2 className="size-4" />} kbd="learn.settings" onClick={() => (close(), setSettingsOpen(true))}>
+                  <MenuItem kbd="learn.settings" onClick={() => (close(), setSettingsOpen(true))}>
                     Deck settings & AI
                   </MenuItem>
                 </>
@@ -234,22 +234,17 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
         {deck.description}
       </PageTitle>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1.6fr]">
-        <Stat label="Due today" value={stats.due} tone="accent" sub={`of ${stats.total} cards`} />
-        <Stat label="Mastery" value={`${Math.round(stats.mastery * 100)}%`} tone="good" sub={`${stats.reviewed} reviewed`} />
-        <Stat label="Cards" value={stats.total} sub={`${tags.length} tag${tags.length === 1 ? '' : 's'}`} />
-        <div className="rounded-xl border border-line bg-surface p-5">
-          <div className="text-[0.75rem] font-semibold text-muted">Last 7 days</div>
-          <div className="mt-3 flex h-[74px] items-stretch gap-2">
+      <div className="flex flex-wrap items-end gap-x-10 gap-y-4 border-y border-line py-4">
+        <Figure label="Due today" value={stats.due} accent />
+        <Figure label="Cards" value={stats.total} />
+        <Figure label="Mastery" value={`${Math.round(stats.mastery * 100)}%`} />
+        <Figure label="Reviewed" value={stats.reviewed} />
+        <div className="ml-auto flex flex-col gap-1.5">
+          <span className="text-[0.8rem] text-muted">Last 7 days</span>
+          <div className="flex h-9 items-stretch gap-1">
             {stats.activity.map((a) => (
-              <div key={a.date} className="group flex flex-1 flex-col items-center gap-1.5" title={`${a.count} reviews`}>
-                <div className="relative w-full flex-1">
-                  <div
-                    className="absolute inset-x-0 bottom-0 rounded-lg bg-accent transition-[height] duration-700 ease-out-soft group-hover:brightness-110"
-                    style={{ height: `${Math.max(a.count ? 8 : 3, (a.count / max) * 100)}%`, opacity: a.count ? 1 : 0.25 }}
-                  />
-                </div>
-                <span className="text-[0.7rem] text-muted">{new Date(a.date + 'T12:00').toLocaleDateString(undefined, { weekday: 'narrow' })}</span>
+              <div key={a.date} className="relative w-3.5" title={`${new Date(a.date + 'T12:00').toLocaleDateString(undefined, { weekday: 'short' })}: ${a.count} reviews`}>
+                <div className="absolute inset-x-0 bottom-0 rounded-sm bg-accent" style={{ height: `${a.count ? Math.max(12, (a.count / max) * 100) : 6}%`, opacity: a.count ? 1 : 0.18 }} />
               </div>
             ))}
           </div>
@@ -257,24 +252,22 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
       </div>
 
       {stats.weakest.length > 0 && (
-        <section className="mt-6">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-lg font-semibold">
-              <TrendingDown className="size-5 text-bad" /> Weakest cards
-            </h2>
-            <Button size="sm" variant="soft" onClick={() => runCommand('study.learnWeak')} kbd="study.learnWeak">
+        <section className="mt-8">
+          <div className="mb-1 flex items-baseline justify-between">
+            <h2 className="text-[0.85rem] font-medium text-muted">Weakest cards</h2>
+            <button onClick={() => runCommand('study.learnWeak')} className="text-[0.85rem] text-accent hover:underline">
               Learn these
-            </Button>
+            </button>
           </div>
-          <div className="stagger grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="border-t border-line">
             {stats.weakest.map((w) => (
-              <Card key={w.card.id} className="!p-4" onClick={() => setEditing({ ...w.card })}>
-                <div className="line-clamp-2 font-semibold">{w.card.front}</div>
-                <div className="mt-1 text-[0.8rem] text-muted">
+              <div key={w.card.id} onClick={() => setEditing({ ...w.card })} className="-mx-3 flex cursor-pointer items-center gap-4 rounded-md border-b border-line px-3 py-2 text-[0.93rem] hover:bg-surface-2/70">
+                <span className="min-w-0 flex-1 truncate">{w.card.front}</span>
+                <span className="tabular text-[0.85rem] text-muted">
                   {w.lapses} lapse{w.lapses === 1 ? '' : 's'}
                   {w.difficulty != null ? ` · difficulty ${w.difficulty.toFixed(2)}` : ''}
-                </div>
-              </Card>
+                </span>
+              </div>
             ))}
           </div>
         </section>
@@ -289,10 +282,10 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
           {selected.size > 0 ? (
             <div className="pop-in flex items-center gap-2">
               <Pill tone="accent">{selected.size} selected</Pill>
-              <Button size="sm" icon={<FolderInput className="size-3.5" />} onClick={() => moveIds([...selected])}>
+              <Button size="sm" onClick={() => moveIds([...selected])}>
                 Move
               </Button>
-              <Button size="sm" variant="danger" icon={<Trash2 className="size-3.5" />} onClick={() => deleteIds([...selected])}>
+              <Button size="sm" variant="danger" onClick={() => deleteIds([...selected])}>
                 Delete
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
@@ -300,7 +293,7 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
               </Button>
             </div>
           ) : (
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => runCommand('card.new')} kbd="card.new">
+            <Button variant="primary" onClick={() => runCommand('card.new')} kbd="card.new">
               Add card
             </Button>
           )}
@@ -318,10 +311,10 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
           </div>
         )}
         {cards.length === 0 ? (
-          <Empty icon={<Sparkles className="size-6" />} title="This deck is empty">
+          <Empty title="This deck is empty">
             Add cards by hand, import a StudySmarter export, or let AI make them from your notes or a PDF.
             <div className="mt-4 flex flex-wrap justify-center gap-2">
-              <Button variant="primary" icon={<Sparkles className="size-4" />} onClick={() => runCommand('gen.cards')}>
+              <Button variant="primary" onClick={() => runCommand('gen.cards')}>
                 Generate with AI
               </Button>
               <Button onClick={() => runCommand('card.new')}>Add a card</Button>
@@ -329,7 +322,7 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
             </div>
           </Empty>
         ) : (
-          <div ref={listRef} className="flex flex-col gap-2">
+          <div ref={listRef} className="flex flex-col border-t border-line">
             {shown.map((c, i) => (
               <div
                 key={c.id}
@@ -338,8 +331,8 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
                 onClick={() => setCursor(i)}
                 onDoubleClick={() => setEditing({ ...c })}
                 className={cx(
-                  'group grid grid-cols-[auto_1fr] gap-3 rounded-xl border bg-surface p-4 transition-[border-color,box-shadow,transform] duration-300 md:grid-cols-[auto_1fr_1fr_auto]',
-                  i === cursor ? 'border-accent/60 shadow-[0_0_0_3px_color-mix(in_oklab,var(--accent)_15%,transparent)]' : 'border-line hover:border-[color-mix(in_oklab,var(--ink)_22%,transparent)]',
+                  'group -mx-3 grid grid-cols-[auto_1fr] gap-3 rounded-md border-b border-line px-3 py-3 transition-colors md:grid-cols-[auto_1fr_1fr_auto]',
+                  i === cursor ? 'bg-accent-soft/50' : 'hover:bg-surface-2/60',
                   selected.has(c.id) && 'bg-accent-soft/50'
                 )}
               >
@@ -354,7 +347,7 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
                   {selected.has(c.id) && <Check className="size-3.5" />}
                 </button>
                 <div className="min-w-0">
-                  <Markdown className="font-semibold">{c.front}</Markdown>
+                  <Markdown className="font-medium">{c.front}</Markdown>
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {c.kind !== 'regular' && <Pill tone="accent">{c.kind === 'cloze' ? 'Cloze' : 'Multiple choice'}</Pill>}
                     {c.required_points != null && <Pill>({c.required_points}) points</Pill>}
@@ -394,17 +387,17 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
                     {(close) => (
                       <>
                         {actions.map((a) => (
-                          <MenuItem key={a.id} icon={<Sparkles className="size-4" />} onClick={() => (close(), openExplain({ ctx: { cardId: c.id, deckId: id }, title: c.front.split('\n')[0], action: { id: a.id, name: a.name } }))}>
+                          <MenuItem key={a.id} onClick={() => (close(), openExplain({ ctx: { cardId: c.id, deckId: id }, title: c.front.split('\n')[0], action: { id: a.id, name: a.name } }))}>
                             {a.name}
                           </MenuItem>
                         ))}
-                        <MenuItem icon={<Copy className="size-4" />} kbd="item.duplicate" onClick={() => (close(), duplicate(c))}>
+                        <MenuItem kbd="item.duplicate" onClick={() => (close(), duplicate(c))}>
                           Duplicate
                         </MenuItem>
-                        <MenuItem icon={<FolderInput className="size-4" />} onClick={() => (close(), moveIds([c.id]))}>
+                        <MenuItem onClick={() => (close(), moveIds([c.id]))}>
                           Move to deck
                         </MenuItem>
-                        <MenuItem icon={<Trash2 className="size-4" />} danger onClick={() => (close(), deleteIds([c.id]))}>
+                        <MenuItem danger onClick={() => (close(), deleteIds([c.id]))}>
                           Delete
                         </MenuItem>
                       </>
@@ -431,6 +424,15 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
       )}
       {settingsOpen && <DeckSettings deck={deck} onClose={() => setSettingsOpen(false)} onSaved={load} />}
     </Shell>
+  )
+}
+
+function Figure({ label, value, accent }: { label: string; value: React.ReactNode; accent?: boolean }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-[0.8rem] text-muted">{label}</span>
+      <span className={cx('tabular text-[1.4rem] leading-tight font-semibold tracking-tight', accent && 'text-accent')}>{value}</span>
+    </div>
   )
 }
 

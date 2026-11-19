@@ -1,5 +1,5 @@
 import type { StudywiseApi } from '../main/ipc'
-import type { JobInfo, ClaudeStatus } from '../shared/types'
+import type { JobInfo, ClaudeStatus, UsageLimits } from '../shared/types'
 
 export type StudywiseEvent =
   | { type: 'ai:delta'; streamId: string; text: string }
@@ -9,6 +9,7 @@ export type StudywiseEvent =
   | { type: 'open-files'; paths: string[] }
   | { type: 'claude:status'; status: ClaudeStatus }
   | { type: 'fullscreen'; on: boolean }
+  | { type: 'usage'; usage: UsageLimits }
 
 declare global {
   interface Window {

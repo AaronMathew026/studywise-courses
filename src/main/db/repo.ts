@@ -455,3 +455,45 @@ export function aiUsageSummary() {
     )
     .all()
 }
+
+// ---------- home overview ----------
+const localDay = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+
+/** Reviews per day for the last `days` days (local dates), the current streak and the next due card. */
+export function overview(days = 84) {
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  start.setDate(start.getDate() - (days - 1))
+  const rows = getDb().prepare('SELECT at FROM review_log WHERE at >= ?').all(start.toISOString()) as { at: string }[]
+  const counts = new Map<string, number>()
+  for (const r of rows) {
+    const k = localDay(new Date(r.at))
+    counts.set(k, (counts.get(k) ?? 0) + 1)
+  }
+  const activity: { date: string; count: number }[] = []
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start)
+    d.setDate(start.getDate() + i)
+    const k = localDay(d)
+    activity.push({ date: k, count: counts.get(k) ?? 0 })
+  }
+  // Streak: consecutive days with reviews, counting back from today (or yesterday if nothing yet today).
+  let streak = 0
+  let i = activity.length - 1
+  if (activity[i]?.count === 0) i--
+  while (i >= 0 && activity[i].count > 0) {
+    streak++
+    i--
+  }
+  const today = activity[activity.length - 1]?.count ?? 0
+  const week = activity.slice(-7).reduce((n, a) => n + a.count, 0)
+  let next: (Card & { deck_name: string }) | null = null
+  for (const d of listDecks().filter((x) => x.due_count > 0).sort((a, b) => b.due_count - a.due_count)) {
+    const c = dueCards(d.id)[0]
+    if (c) {
+      next = { ...c, deck_name: d.name }
+      break
+    }
+  }
+  return { activity, streak, today, week, next }
+}

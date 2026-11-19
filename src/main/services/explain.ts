@@ -61,9 +61,11 @@ export async function explain(ctx: ExplainContext, mode: string, explanationId: 
     id = uid()
     getDb().prepare('INSERT INTO explanations (id, card_id, note_id, context, created_at) VALUES (?, ?, ?, ?, ?)').run(id, ctx.cardId ?? null, ctx.noteId ?? null, JSON.stringify(ctx), now())
   }
-  const label = mode in EXPLAIN_MODES ? mode : 'explain'
-  const r = await runAI<string>({ task: 'explain', deckId, vars: { ...vars, mode: EXPLAIN_MODES[label] }, onDelta })
-  addMessage(id, 'assistant', r.text, label)
+  const known = mode in EXPLAIN_MODES
+  const request = known ? EXPLAIN_MODES[mode] : mode.slice(0, 2000)
+  if (!known) addMessage(id, 'user', request, null)
+  const r = await runAI<string>({ task: 'explain', deckId, vars: { ...vars, mode: request }, onDelta })
+  addMessage(id, 'assistant', r.text, known ? mode : null)
   return { explanationId: id, text: r.text }
 }
 

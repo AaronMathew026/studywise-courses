@@ -245,7 +245,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
             })}
           </div>
           <div className="flex flex-wrap justify-center gap-2">
-            <Button variant="primary" icon={<Brain className="size-4" />} onClick={() => setRestartKey((k) => k + 1)}>
+            <Button variant="primary" onClick={() => setRestartKey((k) => k + 1)}>
               Another round
             </Button>
             <Button onClick={() => go({ name: 'flashcards', deckId, mode: 'due' })}>Review due cards</Button>
@@ -321,21 +321,21 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
               )}
               <span className="flex-1" />
               {!slot.mark && q.type !== 'read_understand' && q.type !== 'match_pairs' && (
-                <Button size="sm" variant="ghost" icon={<Lightbulb className="size-3.5" />} onClick={hint} loading={hinting} disabled={slot.hints.length >= 2}>
+                <Button size="sm" variant="ghost" onClick={hint} loading={hinting} disabled={slot.hints.length >= 2}>
                   Hint {slot.hints.length > 0 && `${slot.hints.length}/2`}
                 </Button>
               )}
               {!slot.mark && q.type !== 'match_pairs' && q.type !== 'fill_blank' && (
-                <Button size="sm" variant="ghost" icon={<RefreshCw className="size-3.5" />} onClick={regenerate} loading={regenerating} title="Regenerate (⌥⌘R)">
+                <Button size="sm" variant="ghost" onClick={regenerate} loading={regenerating} title="Regenerate (⌥⌘R)">
                   Regenerate
                 </Button>
               )}
-              <Button size="sm" variant="ghost" icon={<MessageCircleQuestion className="size-3.5" />} onClick={() => explain()} title="Explain (⌘E)">
+              <Button size="sm" variant="ghost" onClick={() => explain()} title="Explain (⌘E)">
                 Explain
               </Button>
               {!slot.mark &&
                 beforeActions.map((a) => (
-                  <Button key={a.id} size="sm" variant="ghost" icon={<Sparkles className="size-3.5" />} onClick={() => runAction(a)}>
+                  <Button key={a.id} size="sm" variant="ghost" onClick={() => runAction(a)}>
                     {a.name}
                   </Button>
                 ))}
@@ -372,11 +372,11 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
                   <span className="text-lg font-semibold">{verdict === 'correct' ? (slot.overridden ? 'Marked correct' : 'Correct!') : verdict === 'partial' ? 'Partly right' : 'Not quite'}</span>
                   <span className="flex-1" />
                   {verdict !== 'correct' && (
-                    <Button size="sm" variant="outline" icon={<ThumbsUp className="size-3.5" />} onClick={override} title="I was right (R)">
+                    <Button size="sm" variant="outline" onClick={override} title="I was right (R)">
                       I was right
                     </Button>
                   )}
-                  <Button size="sm" variant="ink" onClick={next} icon={<ArrowRight className="size-3.5" />}>
+                  <Button size="sm" variant="ink" onClick={next}>
                     Continue <Kbd className="ml-1 border-current/30">↩</Kbd>
                   </Button>
                 </div>
@@ -386,7 +386,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
 
             {!slot.mark && !slot.marking && (
               <div className="mt-4 flex justify-end">
-                <Button size="sm" variant="ghost" icon={<SkipForward className="size-3.5" />} onClick={next} title="Skip (S)">
+                <Button size="sm" variant="ghost" onClick={next} title="Skip (S)">
                   Skip
                 </Button>
               </div>
@@ -439,7 +439,7 @@ function FeedbackPanel({ slot, onExplain, actions, onAction }: { slot: Slot; onE
         </div>
       )}
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button size="sm" variant="soft" icon={<MessageCircleQuestion className="size-3.5" />} onClick={() => onExplain()}>
+        <Button size="sm" variant="soft" onClick={() => onExplain()}>
           Explain
         </Button>
         {slot.mark?.verdict !== 'correct' && (
@@ -448,7 +448,7 @@ function FeedbackPanel({ slot, onExplain, actions, onAction }: { slot: Slot; onE
           </Button>
         )}
         {actions.map((a) => (
-          <Button key={a.id} size="sm" variant="ghost" icon={<Sparkles className="size-3.5" />} onClick={() => onAction(a)}>
+          <Button key={a.id} size="sm" variant="ghost" onClick={() => onAction(a)}>
             {a.name}
           </Button>
         ))}

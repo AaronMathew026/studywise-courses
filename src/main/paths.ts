@@ -14,7 +14,11 @@ function build(root: string) {
   }
 }
 
-export let paths = build(process.env.STUDYWISE_DATA_DIR || join(app.getPath('appData'), 'Studywise'))
+const ROOT = process.env.STUDYWISE_DATA_DIR || join(app.getPath('appData'), 'Studywise')
+// Set before anything asks for the single-instance lock (it lives in userData),
+// so test runs with their own data dir don't collide with the real app.
+app.setPath('userData', ROOT)
+export let paths = build(ROOT)
 
 export function initPaths(): void {
   const root = process.env.STUDYWISE_DATA_DIR || join(app.getPath('appData'), 'Studywise')

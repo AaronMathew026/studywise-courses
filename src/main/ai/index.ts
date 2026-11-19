@@ -7,7 +7,7 @@ import { renderTemplate } from '@shared/template'
 import { getPreset, defaultPreset } from './presets'
 import { modelFor } from './models'
 import { schemaFor, jsonSchemaFor, formatInstructions, extractJson } from './schemas'
-import { runClaude, CliError, type CliResult } from './cli'
+import { runClaude, CliError, emitRateLimit, type CliResult } from './cli'
 import { Semaphore } from './queue'
 import { mockResponse, mockStream } from './mock'
 import { logAiCall, getDeck, getSetting } from '../db/repo'
@@ -121,6 +121,7 @@ export async function runAI<T = unknown>(opts: RunAIOptions): Promise<RunAIResul
       let res: CliResult
       if (isMock()) {
         const m = mockResponse(opts.task, r.mode, opts.vars ?? {}, prompt)
+        emitRateLimit({ status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.42, resetsAt: Math.floor(Date.now() / 1000) + 7200, status: 'allowed' }, seven_day: { utilization: 0.18, resetsAt: Math.floor(Date.now() / 1000) + 4 * 86400, status: 'allowed' } } })
         await mockStream(m.text, opts.onDelta, opts.signal)
         res = {
           text: m.text,

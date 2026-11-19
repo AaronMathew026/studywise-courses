@@ -186,7 +186,7 @@ export function CardEditor({ draft, onClose, onSaved }: { draft: CardDraft | nul
                 </div>
               ))}
               {d.options.length < 6 && (
-                <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => set({ options: [...d.options, { text: '', correct: false }] })} className="self-start">
+                <Button size="sm" variant="ghost" onClick={() => set({ options: [...d.options, { text: '', correct: false }] })} className="self-start">
                   Add option
                 </Button>
               )}

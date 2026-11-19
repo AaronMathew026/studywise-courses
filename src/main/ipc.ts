@@ -15,6 +15,7 @@ import * as explain from './services/explain'
 import * as io from './importexport'
 import { backupLibrary, restoreLibrary } from './backup'
 import { paths } from './paths'
+import { getUsage } from './usage'
 import {
   CardInput,
   CardFormat,
@@ -239,6 +240,7 @@ export const handlers = {
     ),
     delete: h(z.object({ id }), (i) => repo.deleteDeck(i.id)),
     stats: h(z.object({ id }), (i) => repo.deckStats(i.id)),
+    overview: h(none, () => repo.overview()),
     due: h(z.object({ id }), (i) => repo.dueCards(i.id))
   },
 
@@ -424,7 +426,8 @@ export const handlers = {
   ai: {
     calls: h(z.object({ limit: z.number().int().min(1).max(2000).optional() }).optional(), (i) => repo.listAiCalls(i?.limit ?? 300)),
     summary: h(none, () => repo.aiUsageSummary()),
-    queue: h(none, () => ({ running: aiQueue.running, waiting: aiQueue.waiting }))
+    queue: h(none, () => ({ running: aiQueue.running, waiting: aiQueue.waiting })),
+    limits: h(none, () => getUsage())
   },
 
   io: {
