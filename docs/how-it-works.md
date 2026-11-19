@@ -28,7 +28,7 @@ Each card becomes one of eight question types: Read & understand, Multiple choic
 
 Multiple choice, true/false, match pairs, categorize and choice blank are marked in code. Free answers are scored out of 10 by Claude against the card, with credit per required point (8+ correct, 4–7 partly right, 3 or less wrong; you can change these). Fill in the blank checks for an exact match first and only asks Claude about the blanks that don't match. Every result can be overridden with "I was right".
 
-Feedback (why your answer was wrong, takeaways, a way to remember it) loads in the background after each answer. Hints come from the card first, then Claude, two at most, and never give away the answer.
+After an answer, **Get feedback** (or `w`) writes why yours was wrong, the key takeaways and a way to remember it. Nothing is generated until you press it. Hints come from the card first, then Claude, two at most, and never give away the answer.
 
 Explain only runs when you ask. Open it on a card, a feedback panel or selected note text, then choose Explain, Simpler, Go deeper, Example, Diagram or Why was I wrong, or type a question. The answer can be saved to the card or turned into new cards.
 

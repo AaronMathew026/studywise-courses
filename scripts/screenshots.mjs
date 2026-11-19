@@ -139,6 +139,7 @@ for (let i = 0; i < 12; i++) {
   if (label.startsWith('Multiple choice') && i > 0) {
     await shot('learn-question')
     await win.locator('main button:has(span.grid)').nth(1).click()
+    await win.getByRole('button', { name: /^Get feedback$/ }).click()
     await win.getByText('Key takeaways').waitFor({ timeout: 8000 })
     await shot('learn-feedback')
     break

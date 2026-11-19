@@ -93,6 +93,7 @@ export const COMMANDS: Command[] = [
   { id: 'learn.true', label: 'True', keys: ['t'], scope: 'learn', group: 'Learn' },
   { id: 'learn.false', label: 'False', keys: ['f'], scope: 'learn', group: 'Learn' },
   { id: 'learn.hint', label: 'Hint', accelerator: 'Shift+CmdOrCtrl+H', keys: ['h'], menu: 'Study', group: 'Learn', separatorBefore: true },
+  { id: 'learn.feedback', label: 'Get Feedback', keys: ['w'], scope: 'learn', group: 'Learn' },
   { id: 'learn.skip', label: 'Skip Question', accelerator: 'Alt+CmdOrCtrl+Right', keys: ['s'], menu: 'Study', group: 'Learn' },
   { id: 'learn.override', label: 'I Was Right', accelerator: 'Shift+CmdOrCtrl+R', keys: ['r'], menu: 'Study', group: 'Learn' },
   { id: 'learn.regenerate', label: 'Regenerate Question', accelerator: 'Alt+CmdOrCtrl+R', menu: 'Study', group: 'Learn' },

@@ -21,10 +21,11 @@ interface Slot {
   marking: boolean
   feedback: Feedback | null
   feedbackError: string | null
+  feedbackLoading: boolean
   overridden: boolean
   hints: string[]
 }
-const emptySlot = (): Slot => ({ answer: null, mark: null, attemptId: null, marking: false, feedback: null, feedbackError: null, overridden: false, hints: [] })
+const emptySlot = (): Slot => ({ answer: null, mark: null, attemptId: null, marking: false, feedback: null, feedbackError: null, feedbackLoading: false, overridden: false, hints: [] })
 
 export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] }) {
   const go = useStore((s) => s.go)
@@ -106,13 +107,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
     try {
       const r = await api.learn.submit({ sessionId: session.id, deckId, question: q, answer: a })
       patchSlot(at, { mark: r.mark, attemptId: r.attemptId, marking: false })
-      if (q.type !== 'read_understand') {
-        // Feedback loads in the background; never blocks the next question.
-        api.learn
-          .feedback({ attemptId: r.attemptId })
-          .then((fb) => patchSlot(at, { feedback: fb as Feedback }))
-          .catch((e) => patchSlot(at, { feedbackError: errorText(e) }))
-      } else next()
+      if (q.type === 'read_understand') next()
     } catch (e) {
       patchSlot(at, { marking: false, answer: null })
       toast(errorText(e), 'bad')
@@ -129,6 +124,17 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
     const stats = await api.learn.end({ sessionId: session.id }).catch(() => null)
     setFinished(stats ?? { answered: 0, correct: 0, partial: 0, wrong: 0 })
   }
+  // Feedback is only written when asked for, and never blocks moving on.
+  const getFeedback = () => {
+    if (!slot.attemptId || slot.feedback || slot.feedbackLoading) return
+    const at = idx
+    patchSlot(at, { feedbackLoading: true, feedbackError: null })
+    api.learn
+      .feedback({ attemptId: slot.attemptId })
+      .then((fb) => patchSlot(at, { feedback: fb as Feedback, feedbackLoading: false }))
+      .catch((e) => patchSlot(at, { feedbackError: errorText(e), feedbackLoading: false }))
+  }
+
   const hint = async () => {
     if (!q || slot.mark || slot.hints.length >= 2 || hinting) return
     setHinting(true)
@@ -189,6 +195,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
       'learn.true': () => q?.type === 'true_false' && !slot.mark && submit({ type: 'true_false', value: true }),
       'learn.false': () => q?.type === 'true_false' && !slot.mark && submit({ type: 'true_false', value: false }),
       'learn.hint': hint,
+      'learn.feedback': () => slot.mark && getFeedback(),
       'learn.skip': () => !slot.marking && next(),
       'learn.override': override,
       'learn.regenerate': regenerate,
@@ -381,7 +388,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
                     Continue <Kbd className="ml-1 border-current/30">↩</Kbd>
                   </Button>
                 </div>
-                <FeedbackPanel slot={slot} onExplain={explain} actions={afterActions} onAction={runAction} />
+                <FeedbackPanel slot={slot} onFeedback={getFeedback} onExplain={explain} actions={afterActions} onAction={runAction} />
               </div>
             )}
 
@@ -400,11 +407,23 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
   )
 }
 
-function FeedbackPanel({ slot, onExplain, actions, onAction }: { slot: Slot; onExplain: (mode?: string) => void; actions: CustomAction[]; onAction: (a: CustomAction) => void }) {
+function FeedbackPanel({
+  slot,
+  onFeedback,
+  onExplain,
+  actions,
+  onAction
+}: {
+  slot: Slot
+  onFeedback: () => void
+  onExplain: (mode?: string) => void
+  actions: CustomAction[]
+  onAction: (a: CustomAction) => void
+}) {
   const fb = slot.feedback
   return (
     <div className="rounded-xl border border-line bg-surface p-5">
-      {!fb && !slot.feedbackError && (
+      {slot.feedbackLoading && (
         <div className="flex flex-col gap-2.5">
           <div className="flex items-center gap-2 text-[0.85rem] text-muted">
             <Sparkles className="size-4 text-accent" /> Writing feedback <Dots />
@@ -413,7 +432,7 @@ function FeedbackPanel({ slot, onExplain, actions, onAction }: { slot: Slot; onE
           <div className="skeleton h-4 w-2/3" />
         </div>
       )}
-      {slot.feedbackError && <div className="text-[0.9rem] text-muted">Feedback unavailable: {slot.feedbackError}</div>}
+      {slot.feedbackError && <div className="mb-3 text-[0.9rem] text-muted">Feedback unavailable: {slot.feedbackError}</div>}
       {fb && (
         <div className="fade-in flex flex-col gap-4">
           {fb.kind === 'wrong' && (
@@ -439,7 +458,12 @@ function FeedbackPanel({ slot, onExplain, actions, onAction }: { slot: Slot; onE
           </section>
         </div>
       )}
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className={cx('flex flex-wrap gap-2', (fb || slot.feedbackLoading) && 'mt-4')}>
+        {!fb && !slot.feedbackLoading && (
+          <Button size="sm" variant="primary" onClick={onFeedback} title="Get feedback (W)">
+            Get feedback
+          </Button>
+        )}
         <Button size="sm" variant="soft" onClick={() => onExplain()}>
           Explain
         </Button>

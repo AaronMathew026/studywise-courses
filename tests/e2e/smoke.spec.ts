@@ -102,6 +102,9 @@ test('create a deck, add cards, and finish a Learn session', async () => {
     // Marked: feedback should load, then continue.
     const next = win.getByRole('button', { name: /^Continue/ })
     await next.waitFor({ state: 'visible', timeout: 10000 })
+    // Feedback is only written when asked for.
+    await expect(win.getByText(/Key takeaways/)).toHaveCount(0)
+    await win.getByRole('button', { name: /^Get feedback$/ }).click()
     await expect(win.getByText(/Key takeaways/)).toBeVisible({ timeout: 8000 })
     feedbackSeen++
     await next.click()
