@@ -62,7 +62,7 @@ export function CommandPalette() {
       key: c.accelerator ?? c.keys?.[0]
     }))
     const all: Item[] = [
-      ...decks.map((d) => ({ kind: 'deck' as const, id: d.id, label: d.name, sub: `${d.card_count} cards` })),
+      ...decks.map((d) => ({ kind: 'deck' as const, id: d.id, label: d.name, sub: `${d.card_count} card${d.card_count === 1 ? "" : "s"}` })),
       ...notes.map((n) => ({ kind: 'note' as const, id: n.id, label: n.title, sub: n.module || 'Note' })),
       ...cmds
     ]

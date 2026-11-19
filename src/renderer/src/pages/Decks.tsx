@@ -13,7 +13,6 @@ type DeckRow = Deck & { card_count: number; due_count: number }
 export function Decks({ folderId }: { folderId: string | null }) {
   const go = useStore((s) => s.go)
   const version = useStore((s) => s.version)
-  const rail = useStore((s) => s.rail)
   const [decks, setDecks] = useState<DeckRow[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
   const [q, setQ] = useState('')
@@ -61,22 +60,35 @@ export function Decks({ folderId }: { folderId: string | null }) {
   )
 
   return (
-    <div className="flex min-h-full">
-      <aside className={cx('shrink-0 overflow-hidden border-r border-line transition-[width,opacity] duration-500 ease-out-soft max-md:hidden', rail ? 'w-[248px] opacity-100' : 'w-0 opacity-0')}>
-        <div className="flex w-[248px] flex-col gap-1 p-4">
-          <div className="mb-1 flex items-center justify-between px-2 text-[0.75rem] font-semibold text-muted">
-            Folders
-            <button onClick={() => runCommand('folder.new')} className="rounded-full p-1 hover:bg-surface-2" title="New folder (⇧⌥⌘N)">
-              <FolderPlus className="size-4" />
-            </button>
+    <>
+      <Shell>
+        <PageTitle
+          eyebrow="Library"
+          title={folder?.name ?? 'Decks'}
+          actions={
+            <>
+              <Button icon={<Upload className="size-4" />} onClick={() => runCommand('io.importDeck')} kbd="io.importDeck">
+                Import
+              </Button>
+              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => runCommand('deck.new')}>
+                New deck
+              </Button>
+            </>
+          }
+        />
+        <div className="mb-5 flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter decks…" className="pl-9" />
           </div>
-          <RailItem active={!folderId} onClick={() => go({ name: 'decks' })} icon={<Layers className="size-4" />} label="All decks" count={decks.length} />
+        </div>
+        <div className="mb-6 flex flex-wrap items-center gap-1.5">
+          <FolderChip active={!folderId} onClick={() => go({ name: 'decks' })} label="All" count={decks.length} />
           {folders.map((f) => (
-            <RailItem
+            <FolderChip
               key={f.id}
               active={folderId === f.id}
               onClick={() => go({ name: 'decks', folderId: f.id })}
-              icon={<FolderIcon className="size-4" />}
               label={f.name}
               count={decks.filter((d) => d.folder_id === f.id).length}
               onRename={async () => {
@@ -92,26 +104,9 @@ export function Decks({ folderId }: { folderId: string | null }) {
               }}
             />
           ))}
-        </div>
-      </aside>
-      <Shell className="flex-1">
-        <PageTitle
-          eyebrow="Library"
-          title={folder?.name ?? 'Decks'}
-          actions={
-            <>
-              <Button icon={<Upload className="size-4" />} onClick={() => runCommand('io.importDeck')} kbd="io.importDeck">
-                Import
-              </Button>
-              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => runCommand('deck.new')}>
-                New deck
-              </Button>
-            </>
-          }
-        />
-        <div className="relative mb-5">
-          <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter decks…" className="pl-10" />
+          <button onClick={() => runCommand('folder.new')} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[0.85rem] text-muted transition-colors hover:bg-surface-2 hover:text-ink" title="New folder (⇧⌥⌘N)">
+            <FolderPlus className="size-4" /> New folder
+          </button>
         </div>
         {shown.length === 0 ? (
           <Empty icon={<Layers className="size-6" />} title={decks.length ? 'No decks match' : 'No decks yet'}>
@@ -160,7 +155,7 @@ export function Decks({ folderId }: { folderId: string | null }) {
                 <div className="mt-auto pt-4">
                   <div className="truncate text-[1.1rem] font-semibold">{d.name}</div>
                   <div className="mt-1 flex items-center gap-2 text-[0.85rem] text-muted">
-                    {d.card_count} cards {d.due_count > 0 && <Pill tone="accent">{d.due_count} due</Pill>}
+                    {d.card_count} card{d.card_count === 1 ? '' : 's'} {d.due_count > 0 && <Pill tone="accent">{d.due_count} due</Pill>}
                   </div>
                   <ProgressBar value={d.card_count ? 1 - d.due_count / d.card_count : 0} className="mt-3 h-1.5" />
                 </div>
@@ -169,7 +164,29 @@ export function Decks({ folderId }: { folderId: string | null }) {
           </div>
         )}
       </Shell>
-    </div>
+    </>
+  )
+}
+
+function FolderChip({ active, onClick, label, count, onRename, onDelete }: { active: boolean; onClick: () => void; label: string; count: number; onRename?: () => void; onDelete?: () => void }) {
+  return (
+    <span className={cx('group inline-flex h-8 items-center rounded-lg border text-[0.86rem] transition-colors', active ? 'border-accent/40 bg-accent-soft text-accent' : 'border-line bg-surface text-ink hover:border-[color-mix(in_oklab,var(--ink)_22%,transparent)]')}>
+      <button onClick={onClick} className="inline-flex h-full items-center gap-1.5 pr-2 pl-2.5 font-medium">
+        {onRename ? <FolderIcon className="size-3.5" /> : <Layers className="size-3.5" />}
+        {label}
+        <span className="tabular text-muted">{count}</span>
+      </button>
+      {onRename && (
+        <span className="hidden items-center pr-1 group-hover:inline-flex">
+          <button onClick={onRename} className="rounded p-1 text-muted hover:text-ink" aria-label="Rename folder">
+            <Pencil className="size-3" />
+          </button>
+          <button onClick={onDelete} className="rounded p-1 text-muted hover:text-bad" aria-label="Delete folder">
+            <Trash2 className="size-3" />
+          </button>
+        </span>
+      )}
+    </span>
   )
 }
 

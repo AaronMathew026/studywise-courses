@@ -569,3 +569,11 @@ button {
 h1, h2, h3 {
   letter-spacing: -0.018em;
 }
+
+/* Room for the traffic lights, except in fullscreen where there are none. */
+.nav-inset {
+  padding-left: 86px;
+}
+:root.is-fullscreen .nav-inset {
+  padding-left: 18px;
+}

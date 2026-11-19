@@ -54,7 +54,7 @@ export function GooNav() {
 
   useEffect(() => {
     const onResize = () => {
-      if (window.innerWidth >= 820) setOpen(false)
+      if (window.innerWidth >= 900) setOpen(false)
       const el = linksRef.current?.querySelectorAll<HTMLElement>(':scope > button')[activeIdx]
       place(el ?? null)
     }
@@ -69,14 +69,14 @@ export function GooNav() {
 
   return (
     <header className={cx('drag relative z-30 shrink-0 border-b border-line bg-nav backdrop-blur-xl', open && 'is-open')}>
-      <nav className="relative flex h-[var(--nav-h)] items-center gap-3 pr-3 pl-[86px] sm:pr-4">
+      <nav className="nav-inset relative flex h-[var(--nav-h)] items-center gap-3 pr-3 sm:pr-4">
         <button onClick={() => navTo({ name: 'home' })} className="no-drag flex items-center gap-2 pr-2">
           <Logo />
-          <span className="hidden text-[0.95rem] font-semibold tracking-[-0.01em] min-[1000px]:inline">Studywise</span>
+          <span className="hidden text-[0.95rem] font-semibold tracking-[-0.01em] sm:inline">Studywise</span>
         </button>
 
-        <div className="hidden flex-1 justify-center min-[820px]:flex">
-          <div ref={linksRef} className="goo-links no-drag" onMouseLeave={() => setHovering(false)}>
+        <div className="pointer-events-none absolute inset-y-0 left-1/2 hidden -translate-x-1/2 items-center min-[900px]:flex">
+          <div ref={linksRef} className="goo-links no-drag pointer-events-auto" onMouseLeave={() => setHovering(false)}>
             <div className="goo-layer" aria-hidden="true">
               {['a', 'b', 'c'].map((k, i) => (
                 <div key={k} ref={(el) => void (blobs.current[i] = el)} className={cx('goo-blob', hovering ? 'is-on' : activeIdx >= 0 && 'is-rest')} data-blob={k} />
@@ -103,14 +103,14 @@ export function GooNav() {
             ))}
           </div>
         </div>
-        <div className="flex-1 min-[820px]:hidden" />
+        <div className="flex-1" />
 
         <button
           onClick={() => runCommand('palette')}
           className="no-drag hidden h-8 items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-[0.85rem] text-muted transition-colors hover:text-ink sm:flex"
         >
           <Search className="size-3.5" />
-          <span className="hidden lg:inline">Search</span>
+          <span className="hidden xl:inline">Search</span>
           <Kbd>⌘K</Kbd>
         </button>
         <button
@@ -121,12 +121,12 @@ export function GooNav() {
           <Plus className="size-4" />
           <span className="hidden sm:inline">Generate</span>
         </button>
-        <button className="menu-btn no-drag min-[820px]:hidden" aria-label="Menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <button className="menu-btn no-drag min-[900px]:hidden" aria-label="Menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
           <span className="menu-bar menu-bar-1" />
           <span className="menu-bar menu-bar-2" />
         </button>
       </nav>
-      <div className="menu-panel no-drag min-[820px]:hidden">
+      <div className="menu-panel no-drag min-[900px]:hidden">
         {LINKS.map((l) => (
           <button key={l.label} onClick={() => navTo(l.route)}>
             {l.label}

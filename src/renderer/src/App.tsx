@@ -85,6 +85,7 @@ export function App() {
     () =>
       onEvent((ev) => {
         const st = useStore.getState()
+        if (ev.type === 'fullscreen') document.documentElement.classList.toggle('is-fullscreen', ev.on)
         if (ev.type === 'claude:status') st.setClaude(ev.status)
         if (ev.type === 'open-files') st.setDropFiles(ev.paths)
         if (ev.type === 'job') {
@@ -131,7 +132,7 @@ export function App() {
     if (!decks.length) return null
     return chooseDialog(
       'Which deck?',
-      decks.map((d) => ({ value: d.id, label: `${d.name} · ${d.card_count} cards` })),
+      decks.map((d) => ({ value: d.id, label: `${d.name} · ${d.card_count} card${d.card_count === 1 ? "" : "s"}` })),
       { confirmText: 'Continue' }
     )
   }
@@ -285,7 +286,7 @@ export function App() {
       {focus && <div className="drag h-9 shrink-0" />}
       <SetupBanner />
       <main className="relative min-h-0 flex-1">
-        <div key={pageKey} className="page-in absolute inset-0 overflow-y-auto [scrollbar-gutter:stable]">
+        <div key={pageKey} className="page-in absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
           {!ready ? (
             <div className="grid h-full place-items-center">
               <Spinner className="size-6 text-muted" />

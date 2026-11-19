@@ -8,6 +8,7 @@ export type StudywiseEvent =
   | { type: 'menu'; action: string }
   | { type: 'open-files'; paths: string[] }
   | { type: 'claude:status'; status: ClaudeStatus }
+  | { type: 'fullscreen'; on: boolean }
 
 declare global {
   interface Window {

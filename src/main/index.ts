@@ -103,6 +103,9 @@ function createWindow(): void {
     }
   })
   if (state.maximized) mainWindow.maximize()
+  // No traffic lights in fullscreen, so the nav can drop its left inset.
+  mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('sw:event', { type: 'fullscreen', on: true }))
+  mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('sw:event', { type: 'fullscreen', on: false }))
   trackWindowState(mainWindow)
   mainWindow.once('ready-to-show', () => mainWindow?.show())
   mainWindow.on('closed', () => {

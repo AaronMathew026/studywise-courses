@@ -13,7 +13,8 @@ const env = { ...process.env, AI_MOCK: '1', STUDYWISE_DATA_DIR: dir }
 delete env.ELECTRON_RUN_AS_NODE
 const app = await electron.launch({ args: ['.'], env })
 const win = await app.firstWindow()
-await win.setViewportSize({ width: 1360, height: 860 })
+const [vw, vh] = (process.env.VIEWPORT || '1360x860').split('x').map(Number)
+await win.setViewportSize({ width: vw, height: vh })
 win.on('pageerror', (e) => console.error('pageerror', e.message))
 await win.waitForTimeout(1200)
 
