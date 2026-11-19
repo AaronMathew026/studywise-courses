@@ -35,8 +35,13 @@ async function addCard(front: string, back: string) {
 test('create a deck, add cards, and finish a Learn session', async () => {
   // First launch shows onboarding; walk through it.
   await expect(win.getByRole('heading', { name: 'Welcome to Studywise.' })).toBeVisible()
-  for (let i = 0; i < 4; i++) await win.getByRole('button', { name: /^(Continue|Skip for now)$/ }).click()
-  await win.getByRole('button', { name: 'Start' }).click()
+  for (let i = 0; i < 4; i++) {
+    await win.getByRole('button', { name: /^(Continue|Skip for now)$/ }).click()
+    await win.waitForTimeout(300)
+  }
+  await win.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect(win.getByRole('heading', { name: 'Welcome to Studywise.' })).toHaveCount(0)
+  await expect(win.locator('[data-modal]')).toHaveCount(0)
   await expect(win.getByRole('heading', { level: 1 })).toContainText(/No decks|due/)
 
   // New deck
@@ -63,7 +68,8 @@ test('create a deck, add cards, and finish a Learn session', async () => {
     // Wait for a question or the result.
     await win.getByText('Writing questions').waitFor({ state: 'detached', timeout: 15000 }).catch(() => {})
     if (await win.getByText(/Great session|Nice work|Good practice/).isVisible()) break
-    const label = (await win.locator('main .pop-in span').first().textContent())?.trim() ?? ''
+    const label = (await win.locator('main [data-qtype]').first().getAttribute('data-qtype', { timeout: 10000 }).catch(() => null)) ?? ''
+    if (!label) continue
     const cont = win.getByRole('button', { name: /^Continue/ })
     if (await cont.isVisible()) {
       await cont.click()

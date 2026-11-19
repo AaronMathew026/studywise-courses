@@ -94,6 +94,7 @@ export const CHANNELS = [
   'ai.summary',
   'ai.queue',
   'ai.limits',
+  'ai.refreshLimits',
   'io.importCards',
   'io.importDeck',
   'io.exportDeck',

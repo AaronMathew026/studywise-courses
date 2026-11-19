@@ -17,48 +17,93 @@ function resetText(w: UsageWindow | null): string {
 export function useUsage(): UsageLimits | null {
   const [u, setU] = useState<UsageLimits | null>(null)
   useEffect(() => {
-    void api.ai.limits().then(setU)
-    return onEvent((ev) => ev.type === 'usage' && setU(ev.usage))
+    const load = () => void api.ai.limits().then(setU)
+    load()
+    // Re-read every minute so a window that has reset drops back to 0%.
+    const t = setInterval(load, 60_000)
+    const off = onEvent((ev) => ev.type === 'usage' && load())
+    return () => {
+      clearInterval(t)
+      off()
+    }
   }, [])
   return u
 }
 
+function ago(iso: string): string {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m} min ago`
+  const h = Math.round(m / 60)
+  return h < 24 ? `${h} h ago` : new Date(iso).toLocaleDateString()
+}
+
 export const tone = (x: number) => (x >= 0.9 ? 'bad' : x >= 0.75 ? 'warn' : 'ok')
 
-/** Small Claude plan-usage readout for the nav: the 5-hour window, with the weekly one in the tooltip. */
+/** Claude plan usage for the nav: the 5-hour window as a small bar with the
+ * percentage inside. The weekly figure is in the tooltip and Settings. */
 export function UsageMeter() {
   const u = useUsage()
   const go = useStore((s) => s.go)
-  const w = u?.fiveHour ?? u?.sevenDay
+  const w = u?.fiveHour
   if (!u || !w) return null
   const pct = Math.round(w.utilization * 100)
   const t = tone(w.utilization)
+  const fill = t === 'bad' ? 'var(--bad)' : t === 'warn' ? 'var(--warn)' : 'var(--accent)'
   const title = [
-    u.fiveHour && `5-hour limit: ${Math.round(u.fiveHour.utilization * 100)}% used, ${resetText(u.fiveHour)}`,
-    u.sevenDay && `Weekly limit: ${Math.round(u.sevenDay.utilization * 100)}% used, ${resetText(u.sevenDay)}`,
-    `Updated ${new Date(u.updatedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+    `Claude usage, 5-hour window: ${pct}%, ${resetText(w)}`,
+    u.sevenDay && `Weekly: ${Math.round(u.sevenDay.utilization * 100)}%, ${resetText(u.sevenDay)}`,
+    `As of ${ago(u.updatedAt)}`
   ]
     .filter(Boolean)
     .join('\n')
+  const label = <span className="tabular text-[0.72rem] font-semibold">{pct}%</span>
   return (
-    <button onClick={() => go({ name: 'settings', tab: 'usage' })} title={title} className="no-drag hidden h-8 items-center gap-2 rounded-lg px-2 text-[0.8rem] text-muted transition-colors hover:bg-surface-2 hover:text-ink md:flex">
-      <span>Claude</span>
-      <span className="relative h-1.5 w-10 overflow-hidden rounded-full bg-surface-2 ring-1 ring-line">
-        <span className={cx('absolute inset-y-0 left-0 rounded-full', t === 'bad' ? 'bg-bad' : t === 'warn' ? 'bg-warn' : 'bg-accent')} style={{ width: `${Math.max(3, pct)}%` }} />
+    <button
+      onClick={() => go({ name: 'settings', tab: 'usage' })}
+      title={title}
+      aria-label={`Claude usage ${pct}%`}
+      className="no-drag relative hidden h-[18px] w-14 overflow-hidden rounded-[5px] bg-surface-2 ring-1 ring-line md:block"
+    >
+      <span className="absolute inset-0 grid place-items-center text-muted">{label}</span>
+      {/* The filled part, with the label repeated in white and clipped to it. */}
+      <span className="absolute inset-y-0 left-0 overflow-hidden transition-[width] duration-700 ease-out-soft" style={{ width: `${pct}%`, background: fill }}>
+        <span className="absolute inset-y-0 left-0 grid w-14 place-items-center text-white">{label}</span>
       </span>
-      <span className={cx('tabular', t === 'bad' && 'text-bad', t === 'warn' && 'text-warn')}>{pct}%</span>
     </button>
   )
 }
 
 export function UsageBars() {
-  const u = useUsage()
-  if (!u || (!u.fiveHour && !u.sevenDay)) return <p className="text-[0.9rem] text-muted">Plan usage appears here after the first AI call.</p>
+  const fromHook = useUsage()
+  const [fresh, setFresh] = useState<UsageLimits | null>(null)
+  const [busy, setBusy] = useState(false)
+  const u = fresh ?? fromHook
+  const refresh = async () => {
+    setBusy(true)
+    try {
+      setFresh(await api.ai.refreshLimits())
+    } finally {
+      setBusy(false)
+    }
+  }
+  const refreshBtn = (
+    <button onClick={refresh} disabled={busy} className="text-[0.85rem] text-accent hover:underline disabled:opacity-50">
+      {busy ? 'Checking…' : 'Refresh'}
+    </button>
+  )
+  if (!u || (!u.fiveHour && !u.sevenDay))
+    return (
+      <p className="text-[0.9rem] text-muted">
+        Claude reports plan usage with each AI call, so it appears here after the first one. {refreshBtn}
+      </p>
+    )
   const rows: [string, UsageWindow | null][] = [
     ['5-hour window', u.fiveHour],
     ['Weekly', u.sevenDay]
   ]
   return (
+    <div className="flex flex-col gap-3">
     <div className="grid gap-4 sm:grid-cols-2">
       {rows.map(([label, w]) =>
         w ? (
@@ -75,6 +120,10 @@ export function UsageBars() {
           </div>
         ) : null
       )}
+    </div>
+    <p className="text-[0.82rem] text-muted">
+      As of {ago(u.updatedAt)}. {refreshBtn} <span className="opacity-70">(makes one tiny Haiku call)</span>
+    </p>
     </div>
   )
 }

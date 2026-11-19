@@ -427,7 +427,12 @@ export const handlers = {
     calls: h(z.object({ limit: z.number().int().min(1).max(2000).optional() }).optional(), (i) => repo.listAiCalls(i?.limit ?? 300)),
     summary: h(none, () => repo.aiUsageSummary()),
     queue: h(none, () => ({ running: aiQueue.running, waiting: aiQueue.waiting })),
-    limits: h(none, () => getUsage())
+    limits: h(none, () => getUsage()),
+    /** One tiny Haiku call, just to get fresh plan-usage numbers. */
+    refreshLimits: h(none, async () => {
+      await runAI({ task: 'hint', vars: { front: 'ping', back: 'pong', question: 'ping', type: 'free_answer', previous_hints: '(none)' }, model: { model: 'haiku', effort: null } })
+      return getUsage()
+    })
   },
 
   io: {

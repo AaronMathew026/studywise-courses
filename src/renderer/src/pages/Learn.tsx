@@ -312,7 +312,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
             </div>
           </div>
         ) : (
-          <div key={q.id} className="pop-in">
+          <div key={q.id} className="pop-in" data-qtype={QUESTION_LABELS[q.type]}>
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <Pill tone="accent">{QUESTION_LABELS[q.type]}</Pill>
               {q.cached && (

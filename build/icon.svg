@@ -1,34 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
-    <linearGradient id="bg" x1="0.15" y1="0" x2="0.85" y2="1">
-      <stop offset="0" stop-color="#4f80ff"/>
-      <stop offset="1" stop-color="#1f3fd1"/>
-    </linearGradient>
-    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity="0.18"/>
-      <stop offset="0.45" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
     <filter id="outer" x="-10%" y="-10%" width="120%" height="125%">
-      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.25"/>
-    </filter>
-    <filter id="card" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#0b1a5c" flood-opacity="0.35"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.22"/>
     </filter>
   </defs>
-  <g filter="url(#outer)">
-    <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
-    <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#sheen)"/>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="#2f5bea" filter="url(#outer)"/>
+  <!-- a fanned hand of three cards, pivoting near the bottom -->
+  <g transform="translate(27 12)">
+    <rect x="372" y="272" width="280" height="384" rx="40" fill="#8eacff" transform="rotate(-20 512 760)"/>
+    <rect x="372" y="272" width="280" height="384" rx="40" fill="#c4d3ff" transform="rotate(-4 512 760)"/>
+    <rect x="372" y="272" width="280" height="384" rx="40" fill="#ffffff" transform="rotate(12 512 760)"/>
   </g>
-  <!-- back card -->
-  <rect x="262" y="330" width="390" height="290" rx="52" fill="#fff" opacity="0.3" transform="rotate(-14 457 475)"/>
-  <!-- front card -->
-  <g filter="url(#card)" transform="rotate(7 520 560)">
-    <rect x="318" y="410" width="404" height="300" rx="54" fill="#fff"/>
-    <rect x="376" y="488" width="200" height="34" rx="17" fill="#2f5bea"/>
-    <rect x="376" y="558" width="288" height="26" rx="13" fill="#c9d6ff"/>
-    <rect x="376" y="610" width="226" height="26" rx="13" fill="#c9d6ff"/>
-  </g>
-  <!-- spark -->
-  <path d="M742 236 C752 300 772 320 836 330 C772 340 752 360 742 424 C732 360 712 340 648 330 C712 320 732 300 742 236 Z" fill="#fff"/>
-  <path d="M640 210 C644 236 652 244 678 248 C652 252 644 260 640 286 C636 260 628 252 602 248 C628 244 636 236 640 210 Z" fill="#fff" opacity="0.75"/>
 </svg>

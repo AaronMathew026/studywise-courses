@@ -39,8 +39,16 @@ export function startUsageTracking(): void {
   onRateLimit((info) => setUsage(parseRateLimit(info)))
 }
 
+/** Windows whose reset time has passed are back to 0%. */
+function settle(u: UsageLimits | null): UsageLimits | null {
+  if (!u) return u
+  const now = Date.now() / 1000
+  const fix = (w: UsageWindow | null) => (w && w.resetsAt && w.resetsAt < now ? { ...w, utilization: 0, status: 'allowed', resetsAt: null } : w)
+  return { ...u, fiveHour: fix(u.fiveHour), sevenDay: fix(u.sevenDay) }
+}
+
 export function getUsage(): UsageLimits | null {
-  return current
+  return settle(current)
 }
 
 export function onUsage(l: Listener): () => void {

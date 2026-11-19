@@ -146,20 +146,15 @@ export function GooNav() {
 }
 
 export function Logo({ size = 24 }: { size?: number }) {
-  // Small version of the app icon: a tilted card and a spark on the blue squircle.
+  // Same drawing as build/icon.svg, cropped to the squircle.
   return (
-    <svg viewBox="0 0 32 32" width={size} height={size} aria-hidden="true">
-      <defs>
-        <linearGradient id="sw-logo" x1="0.15" y1="0" x2="0.85" y2="1">
-          <stop offset="0" stopColor="#4f80ff" />
-          <stop offset="1" stopColor="#1f3fd1" />
-        </linearGradient>
-      </defs>
-      <rect width="32" height="32" rx="8.5" fill="url(#sw-logo)" />
-      <rect x="6.3" y="10.6" width="12.6" height="9.2" rx="2" fill="#fff" opacity="0.32" transform="rotate(-14 12.6 15.2)" />
-      <rect x="8.4" y="13.2" width="13.4" height="9.8" rx="2.2" fill="#fff" transform="rotate(7 15 18)" />
-      <rect x="10.6" y="15.6" width="6.4" height="1.6" rx="0.8" fill="#2f5bea" transform="rotate(7 15 18)" />
-      <path d="M23.6 4.6c.36 2.24 1.06 2.94 3.3 3.3-2.24.36-2.94 1.06-3.3 3.3-.36-2.24-1.06-2.94-3.3-3.3 2.24-.36 2.94-1.06 3.3-3.3Z" fill="#fff" />
+    <svg viewBox="100 100 824 824" width={size} height={size} aria-hidden="true">
+      <rect x="100" y="100" width="824" height="824" rx="186" fill="#2f5bea" />
+      <g transform="translate(27 12)">
+        <rect x="372" y="272" width="280" height="384" rx="40" fill="#8eacff" transform="rotate(-20 512 760)" />
+        <rect x="372" y="272" width="280" height="384" rx="40" fill="#c4d3ff" transform="rotate(-4 512 760)" />
+        <rect x="372" y="272" width="280" height="384" rx="40" fill="#ffffff" transform="rotate(12 512 760)" />
+      </g>
     </svg>
   )
 }
