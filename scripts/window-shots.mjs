@@ -9,6 +9,9 @@ const env = { ...process.env, AI_MOCK: '1', STUDYWISE_DATA_DIR: mkdtempSync(join
 delete env.ELECTRON_RUN_AS_NODE
 const app = await electron.launch({ args: ['.'], env })
 const win = await app.firstWindow()
+await win.waitForTimeout(800)
+await win.evaluate(() => window.studywise.settings.set({ key: 'onboarding.done', value: true }))
+await win.reload()
 await win.waitForTimeout(1500)
 await win.evaluate(async () => {
   const d = await window.studywise.decks.create({ name: 'Quantum physics' })

@@ -71,6 +71,8 @@ export function renderPrompt(opts: RunAIOptions): RenderedPrompt {
   const preset: Preset = opts.presetOverride ? { ...base, ...opts.presetOverride } : base
   const mode: OutputMode = opts.outputMode ?? preset.output_mode
   const vars = { ...(opts.vars ?? {}) }
+  // The level picked in onboarding fills {{level}} when a caller doesn't set one.
+  if (!vars.level) vars.level = getSetting<string>('profile.level', '')
   if (opts.deckId && vars.deck_name === undefined) {
     try {
       vars.deck_name = getDeck(opts.deckId).name

@@ -12,6 +12,7 @@ import { GenerateCardsModal, CardPreviewModal, jobDeck } from './components/Gene
 import { GenerateNotesModal, followNoteJobs } from './components/GenerateNotes'
 import { Button, Spinner, cx } from './components/ui'
 import { Home } from './pages/Home'
+import { Onboarding } from './components/Onboarding'
 import { Decks } from './pages/Decks'
 import { DeckPage } from './pages/Deck'
 import { Flashcards } from './pages/Flashcards'
@@ -35,6 +36,7 @@ export function App() {
   const [theme, setTheme] = useState<Theme>('system')
   const [zoom, setZoom] = useState(1)
   const [ready, setReady] = useState(false)
+  const [onboarding, setOnboarding] = useState(false)
 
   // Boot: settings, last route, claude status, jobs.
   useEffect(() => {
@@ -58,6 +60,7 @@ export function App() {
       }
       useStore.getState().setClaude(await api.claude.status())
       useStore.getState().setJobs(await api.jobs.list())
+      if (!s['onboarding.done']) setOnboarding(true)
       setReady(true)
     })()
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
@@ -237,6 +240,7 @@ export function App() {
         if (await confirmDialog('Cancel all running jobs?', undefined, { confirmText: 'Cancel jobs', danger: true })) await api.jobs.cancelAll()
       },
       'help.readme': () => useStore.getState().setSheet(true),
+      'help.onboarding': () => setOnboarding(true),
       'study.end': () => {
         const r = useStore.getState()
         if (r.explain) r.openExplain(null)
@@ -307,6 +311,7 @@ export function App() {
       <DialogHost />
       <DropChooser />
       <Toasts />
+      {onboarding && <Onboarding onDone={() => setOnboarding(false)} />}
       {dragging && (
         <div className="fade-in pointer-events-none fixed inset-3 z-[70] grid place-items-center rounded-xl border-4 border-dashed border-accent bg-accent-soft/80 backdrop-blur-sm">
           <div className="pop-in flex flex-col items-center gap-3 text-center">

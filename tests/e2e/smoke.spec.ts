@@ -33,7 +33,11 @@ async function addCard(front: string, back: string) {
 }
 
 test('create a deck, add cards, and finish a Learn session', async () => {
-  await expect(win.getByRole('heading', { level: 1 })).toContainText(/first deck|due/)
+  // First launch shows onboarding; walk through it.
+  await expect(win.getByRole('heading', { name: 'Welcome to Studywise.' })).toBeVisible()
+  for (let i = 0; i < 4; i++) await win.getByRole('button', { name: /^(Continue|Skip for now)$/ }).click()
+  await win.getByRole('button', { name: 'Start' }).click()
+  await expect(win.getByRole('heading', { level: 1 })).toContainText(/No decks|due/)
 
   // New deck
   await win.getByRole('button', { name: /New deck/ }).first().click()

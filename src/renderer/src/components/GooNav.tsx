@@ -145,11 +145,21 @@ export function GooNav() {
   )
 }
 
-export function Logo({ size = 22 }: { size?: number }) {
+export function Logo({ size = 24 }: { size?: number }) {
+  // Small version of the app icon: a tilted card and a spark on the blue squircle.
   return (
-    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
-      <rect x="2" y="2" width="20" height="20" rx="6" fill="var(--accent)" />
-      <path d="M7.5 12.4l3 3 6-6.4" stroke="#fff" strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    <svg viewBox="0 0 32 32" width={size} height={size} aria-hidden="true">
+      <defs>
+        <linearGradient id="sw-logo" x1="0.15" y1="0" x2="0.85" y2="1">
+          <stop offset="0" stopColor="#4f80ff" />
+          <stop offset="1" stopColor="#1f3fd1" />
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="8.5" fill="url(#sw-logo)" />
+      <rect x="6.3" y="10.6" width="12.6" height="9.2" rx="2" fill="#fff" opacity="0.32" transform="rotate(-14 12.6 15.2)" />
+      <rect x="8.4" y="13.2" width="13.4" height="9.8" rx="2.2" fill="#fff" transform="rotate(7 15 18)" />
+      <rect x="10.6" y="15.6" width="6.4" height="1.6" rx="0.8" fill="#2f5bea" transform="rotate(7 15 18)" />
+      <path d="M23.6 4.6c.36 2.24 1.06 2.94 3.3 3.3-2.24.36-2.94 1.06-3.3 3.3-.36-2.24-1.06-2.94-3.3-3.3 2.24-.36 2.94-1.06 3.3-3.3Z" fill="#fff" />
     </svg>
   )
 }

@@ -52,8 +52,7 @@ export function Home() {
           <p className="text-[0.95rem] text-muted">{new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
           {decks.length === 0 ? (
             <>
-              <h1 className="mt-2 text-[2.6rem] leading-[1.05] font-semibold tracking-[-0.035em]">Let’s make your first deck.</h1>
-              <p className="mt-3 max-w-md text-muted">Drop a lecture PDF anywhere on this window. Studywise will write the notes and the flashcards.</p>
+              <h1 className="mt-2 text-[2.6rem] leading-[1.05] font-semibold tracking-[-0.035em]">No decks yet.</h1>
             </>
           ) : (
             <>
@@ -64,12 +63,12 @@ export function Home() {
                 <span className="text-[1.6rem] font-semibold tracking-[-0.02em]">{due === 1 ? 'card due' : 'cards due'}</span>
               </h1>
               <p className="mt-3 text-muted">
-                {due > 0 ? <>Biggest pile: <span className="text-ink">{top?.name}</span> with {top?.due_count}.</> : 'All caught up. A Learn session keeps it fresh.'}
+                {due > 0 ? <>Most in <span className="text-ink">{top?.name}</span>.</> : 'All caught up.'}
                 {ov && ov.streak > 0 && (
                   <>
                     {' '}
                     <span className="text-ink">{ov.streak}-day streak</span>
-                    {ov.today === 0 ? ', keep it going today.' : '.'}
+                    .
                   </>
                 )}
               </p>
@@ -107,19 +106,16 @@ export function Home() {
                     Next up · {next.deck_name}
                   </div>
                   <Markdown className="mt-4 line-clamp-5 text-[1.15rem] leading-snug font-medium">{next.front}</Markdown>
-                  <span className="mt-auto text-[0.8rem] text-muted">Click or press Space to peek at the answer</span>
                 </div>
                 <div className="flip-face flip-back flex flex-col rounded-2xl border border-accent/40 bg-accent-soft p-6">
                   <div className="text-[0.8rem] text-accent">Answer</div>
                   <Markdown className="mt-4 line-clamp-6 text-[1.05rem] leading-snug">{next.back}</Markdown>
-                  <span className="mt-auto text-[0.8rem] text-muted">Rate it properly in a review session</span>
                 </div>
               </div>
             </button>
           ) : (
             <div className="absolute inset-0 flex flex-col justify-center rounded-2xl border border-line bg-surface p-6 shadow-[0_18px_40px_-24px_rgba(20,40,120,0.35)]">
-              <div className="text-[1.15rem] font-medium">{decks.length ? 'Nothing waiting.' : 'Your cards land here.'}</div>
-              <div className="mt-1 text-[0.9rem] text-muted">{decks.length ? 'The next due card will show up on this stack.' : 'Drop a PDF to get a stack going.'}</div>
+              <div className="text-[1.15rem] font-medium">{decks.length ? 'Nothing waiting.' : 'No cards yet.'}</div>
             </div>
           )}
         </div>
@@ -140,7 +136,7 @@ export function Home() {
       <div className="mt-12 grid gap-10 md:grid-cols-[1.4fr_1fr]">
         <Section title="Decks" action={decks.length > 0 ? { label: 'All decks', run: () => go({ name: 'decks' }) } : undefined}>
           {sorted.length === 0 ? (
-            <EmptyRow>Your decks will show up here.</EmptyRow>
+            <EmptyRow>None yet.</EmptyRow>
           ) : (
             sorted.slice(0, 8).map((d) => (
               <Row key={d.id} onClick={() => go({ name: 'deck', id: d.id })}>
@@ -154,7 +150,7 @@ export function Home() {
         </Section>
         <Section title="Recent notes" action={notes.length > 0 ? { label: 'All notes', run: () => go({ name: 'notes' }) } : undefined}>
           {notes.length === 0 ? (
-            <EmptyRow>Notes you write or generate show up here.</EmptyRow>
+            <EmptyRow>None yet.</EmptyRow>
           ) : (
             notes.slice(0, 6).map((n) => (
               <Row key={n.id} onClick={() => go({ name: 'notes', id: n.id })}>
@@ -166,9 +162,6 @@ export function Home() {
         </Section>
       </div>
 
-      <p className="mt-12 text-[0.85rem] text-muted">
-        <Kbd>{keyLabel("⌘K")}</Kbd> finds anything. <Kbd>?</Kbd> shows every shortcut.
-      </p>
     </Shell>
   )
 }

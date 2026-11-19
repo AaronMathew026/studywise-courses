@@ -130,7 +130,8 @@ export const COMMANDS: Command[] = [
 
   // Help
   { id: 'help.readme', label: 'Studywise Help', menu: 'Help', group: 'Help' },
-  { id: 'help.claude', label: 'Claude Code Setup…', menu: 'Help', group: 'Help' }
+  { id: 'help.claude', label: 'Claude Code Setup…', menu: 'Help', group: 'Help' },
+  { id: 'help.onboarding', label: 'Show Onboarding', menu: 'Help', group: 'Help' }
 ]
 
 export const COMMAND_BY_ID = new Map(COMMANDS.map((c) => [c.id, c]))
