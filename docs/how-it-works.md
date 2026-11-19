@@ -12,6 +12,10 @@ Calls run three at a time, time out after 120 seconds (15 minutes for generation
 
 Long jobs (generating notes or cards) run in the main process. Closing the window doesn't stop them, you get a notification when one finishes, and the Jobs page can cancel them.
 
+### On Windows
+
+GUI apps get the full user PATH, so Studywise just looks there and in `%APPDATA%\npm` and `~\.local\bin`. npm installs `claude` as a `claude.cmd` shim, which can't be started without a shell, so Studywise runs the package's `cli.js` with `node.exe` directly. The native installer's `claude.exe` runs as is. The window uses Windows' own caption buttons, shortcuts show as Ctrl/Alt/Shift, and closing the window quits the app once no job is running. Data lives in `%APPDATA%\Studywise`.
+
 ## Notes and flashcards
 
 PDFs are split into 8-page chunks. For notes, each chunk is told what's already been written and the pieces are joined into one note that streams into the editor. Picking several sources switches to the "Linking texts" preset, which sends them in one call so they can be compared.
@@ -74,7 +78,7 @@ There are a lot. `?` lists them all and `⌘K` searches everything. The main one
 
 ## Your data
 
-Everything is in `~/Library/Application Support/Studywise/`: the SQLite database, pasted images, a cache and logs. Settings → General can open the folder, back the whole library up to a zip, and restore it (the old database is kept alongside).
+Everything is in `~/Library/Application Support/Studywise/` (on Windows, `%APPDATA%\Studywise`): the SQLite database, pasted images, a cache and logs. Settings → General can open the folder, back the whole library up to a zip, and restore it (the old database is kept alongside).
 
 ## Environment variables
 

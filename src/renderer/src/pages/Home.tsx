@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { keyLabel } from '@shared/keymap'
 import type { Deck, Card } from '@shared/types'
 import { useStore } from '../lib/store'
 import { api } from '../lib/api'
@@ -166,7 +167,7 @@ export function Home() {
       </div>
 
       <p className="mt-12 text-[0.85rem] text-muted">
-        <Kbd>⌘K</Kbd> finds anything. <Kbd>?</Kbd> shows every shortcut.
+        <Kbd>{keyLabel("⌘K")}</Kbd> finds anything. <Kbd>?</Kbd> shows every shortcut.
       </p>
     </Shell>
   )

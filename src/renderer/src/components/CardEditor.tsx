@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { keyLabel } from '@shared/keymap'
 import { Plus, Trash2, Eye, Pencil } from 'lucide-react'
 import type { Card, CardFormat, CardKind, McOption } from '@shared/types'
 import { countBlanks, bulletItems, parseRequiredPoints } from '@shared/ssText'
@@ -104,7 +105,7 @@ export function CardEditor({ draft, onClose, onSaved }: { draft: CardDraft | nul
       title={d.id ? 'Edit card' : 'New card'}
       footer={
         <>
-          <span className="mr-auto text-[0.8rem] text-muted">⌘↩ to save</span>
+          <span className="mr-auto text-[0.8rem] text-muted">{keyLabel("⌘↩ to save")}</span>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>

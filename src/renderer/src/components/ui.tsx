@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useRef, useState, type ButtonHTMLAttributes, typ
 import { createPortal } from 'react-dom'
 import { X, Loader2 } from 'lucide-react'
 import { twMerge } from 'tailwind-merge'
-import { prettyKey, COMMAND_BY_ID } from '@shared/keymap'
+import { prettyKey, keyLabel, COMMAND_BY_ID } from '@shared/keymap'
 
 export function cx(...c: (string | false | null | undefined)[]): string {
   return twMerge(c.filter(Boolean).join(' '))
@@ -44,6 +44,7 @@ export const Button = forwardRef<
 })
 
 export function Kbd({ children, className }: { children: ReactNode; className?: string }) {
+  if (typeof children === 'string') children = keyLabel(children)
   return (
     <kbd className={cx('inline-flex items-center rounded-md border border-current/20 px-1.5 py-px font-mono text-[0.7rem] font-medium leading-4 opacity-80', className)}>
       {children}

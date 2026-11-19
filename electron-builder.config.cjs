@@ -17,7 +17,8 @@ module.exports = {
   directories: { output: 'release', buildResources: 'build' },
   files: ['out/**/*', 'resources/**/*', 'package.json', '!**/*.map'],
   asarUnpack: ['resources/**', '**/*.node'],
-  npmRebuild: true,
+  // better-sqlite3 ships Node-API prebuilds for every platform, so nothing needs compiling.
+  npmRebuild: false,
   mac: {
     category: 'public.app-category.education',
     artifactName: 'Studywise-mac.${ext}',
@@ -40,6 +41,23 @@ module.exports = {
       NSHumanReadableCopyright: 'Studywise',
       LSApplicationCategoryType: 'public.app-category.education'
     }
+  },
+  win: {
+    icon: 'build/icon.ico',
+    target: [
+      { target: 'nsis', arch: ['x64'] },
+      { target: 'zip', arch: ['x64'] }
+    ],
+    artifactName: 'Studywise-win-${arch}.${ext}'
+  },
+  nsis: {
+    oneClick: false,
+    perMachine: false,
+    allowToChangeInstallationDirectory: true,
+    createDesktopShortcut: true,
+    createStartMenuShortcut: true,
+    shortcutName: 'Studywise',
+    artifactName: 'Studywise-Setup.${ext}'
   },
   fileAssociations: [
     { ext: 'pdf', name: 'PDF Document', role: 'Viewer', rank: 'Alternate' },

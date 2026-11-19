@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { keyLabel } from '@shared/keymap'
 import { X, Undo2, Pencil, MessageCircleQuestion, PartyPopper, RotateCcw } from 'lucide-react'
 import type { Card as CardT, ReviewState } from '@shared/types'
 import { schedule, newState, withDefaults, DEFAULT_SCHEDULER, type SchedulerKind } from '@shared/scheduler'
@@ -117,7 +118,7 @@ export function Flashcards({ deckId, mode }: { deckId: string; mode: 'due' | 'al
           </div>
           <ProgressBar value={queue.length ? i / queue.length : 1} />
         </div>
-        <Button variant="ghost" size="icon" onClick={undo} disabled={!history.length} title="Undo (U / ⌘Z)">
+        <Button variant="ghost" size="icon" onClick={undo} disabled={!history.length} title={keyLabel("Undo (U / ⌘Z)")}>
           <Undo2 className="size-5" />
         </Button>
       </div>
@@ -219,7 +220,7 @@ export function Flashcards({ deckId, mode }: { deckId: string; mode: 'due' | 'al
               )}
               <div className="mt-3 flex justify-center gap-2">
                 <Button size="sm" variant="ghost" onClick={() => openExplain({ ctx: { cardId: card.id, deckId }, title: card.front.split('\n')[0] })}>
-                  Explain ⌘E
+                  {keyLabel('Explain ⌘E')}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setEditing({ ...card })}>
                   Edit E

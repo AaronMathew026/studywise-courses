@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { keyLabel } from '@shared/keymap'
 import {
   Brain,
   Layers,
@@ -277,7 +278,7 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
         <div className="sticky top-0 z-10 -mx-2 mb-3 flex flex-wrap items-center gap-2 bg-bg/85 px-2 py-2 backdrop-blur">
           <div className="relative min-w-[200px] flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted" />
-            <Input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${cards.length} cards…  (⌘F)`} className="pl-10" onKeyDown={(e) => e.key === 'Escape' && (e.currentTarget.blur(), setQ(''))} />
+            <Input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder={keyLabel(`Search ${cards.length} cards…  (⌘F)`)} className="pl-10" onKeyDown={(e) => e.key === 'Escape' && (e.currentTarget.blur(), setQ(''))} />
           </div>
           {selected.size > 0 ? (
             <div className="pop-in flex items-center gap-2">

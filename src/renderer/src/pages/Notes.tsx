@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { keyLabel } from '@shared/keymap'
 import CodeMirror, { EditorView, type ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
@@ -111,10 +112,10 @@ export function Notes({ noteId }: { noteId: string | null }) {
             <Button variant="primary" size="sm" className="flex-1 justify-center" onClick={() => runCommand('note.new')}>
               New note
             </Button>
-            <Button size="sm" onClick={() => runCommand('gen.notes')} title="Generate notes with AI (⇧⌘G)">
+            <Button size="sm" onClick={() => runCommand('gen.notes')} title={keyLabel("Generate notes with AI (⇧⌘G)")}>
               AI
             </Button>
-            <Button size="icon" variant="ghost" onClick={() => runCommand('io.importNotes')} title="Import Markdown / Notion (⌥⌘I)">
+            <Button size="icon" variant="ghost" onClick={() => runCommand('io.importNotes')} title={keyLabel("Import Markdown / Notion (⌥⌘I)")}>
               <Upload className="size-4" />
             </Button>
           </div>
@@ -377,7 +378,7 @@ function NoteEditor({ id, writingJobId, folders, onChanged }: { id: string; writ
               { value: 'preview', label: <Eye className="size-4" /> }
             ]}
           />
-          <Button size="sm" variant="primary" onClick={cardsFromNote} title="Generate flashcards from this note (⇧⌥⌘G)">
+          <Button size="sm" variant="primary" onClick={cardsFromNote} title={keyLabel("Generate flashcards from this note (⇧⌥⌘G)")}>
             Make flashcards
           </Button>
           <Menu
@@ -550,7 +551,7 @@ function NoteEditor({ id, writingJobId, folders, onChanged }: { id: string; writ
 
 function ToolBtn({ icon, label, onClick, k }: { icon?: React.ReactNode; label: string; onClick: () => void; k?: string }) {
   return (
-    <button onClick={onClick} title={k ? `${label} (${k})` : label} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[0.82rem] font-semibold transition-colors hover:bg-accent-soft">
+    <button onClick={onClick} title={k ? `${label} (${keyLabel(k)})` : label} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[0.82rem] font-semibold transition-colors hover:bg-accent-soft">
       {icon}
       {label}
     </button>

@@ -1,6 +1,6 @@
 # Studywise
 
-Flashcards, notes and revision for macOS, with Claude doing the tedious parts.
+Flashcards, notes and revision for macOS and Windows, with Claude doing the tedious parts.
 
 Drop in a lecture PDF and it writes notes in your style, turns them into exam-style flashcards, quizzes you with eight question types, marks what you write and explains what you got wrong. It reads the PDF itself, so tables, screenshots and diagrams count too.
 
@@ -22,14 +22,15 @@ npm install -g @anthropic-ai/claude-code
 claude   # sign in once
 ```
 
-Then either grab `Studywise.dmg` from a release, or build it:
+Then build it:
 
 ```sh
 npm install
-npm run dist     # → release/Studywise.dmg (Apple silicon + Intel)
+npm run dist       # Mac → release/Studywise.dmg (Apple silicon + Intel)
+npm run dist:win   # Windows → release/Studywise-Setup.exe (x64), works from a Mac too
 ```
 
-The build isn't signed with a Developer ID, so the first time you open it, right-click the app and choose **Open** (or run `xattr -dr com.apple.quarantine /Applications/Studywise.app`). To sign and notarize, set `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` before building.
+Neither build is code-signed. On a Mac, right-click the app and choose **Open** the first time (or run `xattr -dr com.apple.quarantine /Applications/Studywise.app`). On Windows, SmartScreen will warn: click **More info → Run anyway**. To sign and notarize the Mac build, set `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` before building.
 
 ## Develop
 

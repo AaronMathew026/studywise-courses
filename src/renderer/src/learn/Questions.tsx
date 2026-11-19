@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { keyLabel } from '@shared/keymap'
 import { Check, X as XIcon, GripVertical } from 'lucide-react'
 import type { LearnQuestion, LearnAnswer, Mark, PayloadOf } from '@shared/questions'
 import type { BlankSegment } from '@shared/blanks'
@@ -168,7 +169,7 @@ export function FreeAnswer({ q, mark, answer, onAnswer, disabled }: QProps<'free
             if (text.trim()) onAnswer({ type: 'free_answer', text })
           }
         }}
-        placeholder="Type your answer…  (↩ to submit, ⇧↩ for a new line)"
+        placeholder={keyLabel("Type your answer…  (↩ to submit, ⇧↩ for a new line)")}
         className="text-[1.05rem]"
       />
       {!disabled && (

@@ -36,7 +36,7 @@ export const COMMANDS: Command[] = [
   { id: 'io.exportNote', label: 'Export Note as Markdown…', menu: 'File', group: 'Import / export' },
   { id: 'app.backup', label: 'Back Up Library…', accelerator: 'Shift+CmdOrCtrl+B', menu: 'File', group: 'Library', separatorBefore: true },
   { id: 'app.restore', label: 'Restore Library…', menu: 'File', group: 'Library' },
-  { id: 'app.showData', label: 'Show Data Folder in Finder', menu: 'File', group: 'Library' },
+  { id: 'app.showData', label: 'Show Data Folder', menu: 'File', group: 'Library' },
 
   // Edit (role items are added by the menu builder)
   { id: 'search', label: 'Search', accelerator: 'CmdOrCtrl+F', keys: ['/'], menu: 'Edit', group: 'Navigate', separatorBefore: true },
@@ -135,9 +135,30 @@ export const COMMANDS: Command[] = [
 
 export const COMMAND_BY_ID = new Map(COMMANDS.map((c) => [c.id, c]))
 
-/** Pretty-print an accelerator or key for the UI using Mac symbols. */
+export const IS_MAC: boolean =
+  typeof navigator !== 'undefined' ? /Mac/i.test(navigator.platform || navigator.userAgent) : typeof process !== 'undefined' && process.platform === 'darwin'
+
+/** Turn Mac key symbols in a label into Windows/Linux names (no-op on a Mac). */
+export function keyLabel(s: string): string {
+  if (IS_MAC) return s
+  return s
+    .replace(/⌘/g, 'Ctrl+')
+    .replace(/⌥/g, 'Alt+')
+    .replace(/⇧/g, 'Shift+')
+    .replace(/⌃/g, 'Ctrl+')
+    .replace(/⌫/g, 'Backspace')
+    .replace(/⌦/g, 'Delete')
+    .replace(/↩/g, 'Enter')
+    .replace(/\+\+/g, '+')
+}
+
+/** Pretty-print an accelerator or key for the UI (Mac symbols on a Mac, Ctrl+… elsewhere). */
 export function prettyKey(k: string): string {
-  if (k.includes(' ') && !k.includes('+')) return k.split(' ').map(prettyKey).join(' then ')
+  return keyLabel(prettyMac(k))
+}
+
+function prettyMac(k: string): string {
+  if (k.includes(' ') && !k.includes('+')) return k.split(' ').map(prettyMac).join(' then ')
   return k
     .split('+')
     .map((p) => {
@@ -187,10 +208,12 @@ export function prettyKey(k: string): string {
 export function matchesKey(e: { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; code?: string }, k: string): boolean {
   const parts = k.split('+')
   const key = parts.pop()!
-  const wantMeta = parts.includes('CmdOrCtrl') || parts.includes('Cmd')
+  const wantCmd = parts.includes('CmdOrCtrl') || parts.includes('Cmd')
   const wantShift = parts.includes('Shift')
   const wantAlt = parts.includes('Alt')
-  if (e.metaKey !== wantMeta) return false
+  // CmdOrCtrl is ⌘ on a Mac and Ctrl elsewhere.
+  const primary = IS_MAC ? e.metaKey : e.ctrlKey
+  if (primary !== wantCmd) return false
   if (e.altKey !== wantAlt) return false
   const ek = e.key === ' ' ? 'Space' : e.key
   const sameKey = ek.toLowerCase() === key.toLowerCase() || (wantAlt && e.code === `Digit${key}`) || (wantAlt && e.code === `Key${key.toUpperCase()}`)

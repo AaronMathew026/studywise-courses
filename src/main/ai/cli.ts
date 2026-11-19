@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdtempSync, copyFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
-import { childEnv, getClaudeStatus, getResolvedPath } from './claudePath'
+import { childEnv, getClaudeStatus, getResolvedPath, spawnTarget } from './claudePath'
 
 export interface CliRequest {
   prompt: string
@@ -98,7 +98,8 @@ export function runClaude(req: CliRequest): Promise<CliResult> {
   return new Promise<CliResult>((resolve, reject) => {
     let child: ChildProcess
     try {
-      child = spawn(status.path!, args, { cwd: workDir, env: childEnv(getResolvedPath()), stdio: ['pipe', 'pipe', 'pipe'], shell: false })
+      const target = spawnTarget(status.path!, getResolvedPath())
+      child = spawn(target.cmd, [...target.prefix, ...args], { cwd: workDir, env: childEnv(getResolvedPath()), stdio: ['pipe', 'pipe', 'pipe'], shell: false, windowsHide: true })
     } catch (e) {
       reject(new CliError(`Could not start claude: ${(e as Error).message}`, 'not_installed'))
       return

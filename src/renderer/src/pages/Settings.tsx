@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { keyLabel } from '@shared/keymap'
 import CodeMirror, { EditorView, type ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { diffLines } from 'diff'
@@ -123,7 +124,7 @@ function General() {
           />
         </Field>
         <p className="text-[0.85rem] text-muted">
-          Text size: <Kbd>⌘=</Kbd> <Kbd>⌘-</Kbd> <Kbd>⌘0</Kbd>. Cycle theme: <Kbd>⇧⌘L</Kbd>.
+          Text size: <Kbd>{keyLabel("⌘=")}</Kbd> <Kbd>{keyLabel("⌘-")}</Kbd> <Kbd>{keyLabel("⌘0")}</Kbd>. Cycle theme: <Kbd>{keyLabel("⇧⌘L")}</Kbd>.
         </p>
       </Card>
       <Card className="flex flex-col gap-4">
@@ -175,7 +176,7 @@ function General() {
         </p>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => api.app.showDataFolder()}>
-            Show data folder in Finder
+            Show data folder
           </Button>
           <Button onClick={async () => (await api.app.backup()) && toast('Backup saved', 'good')}>
             Back up (.zip)

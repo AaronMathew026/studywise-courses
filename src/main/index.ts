@@ -10,7 +10,7 @@ import { detectClaude, setOverridePath } from './ai/claudePath'
 import { registerIpc, broadcast, setAfterCall } from './ipc'
 import { buildMenu } from './menu'
 import { loadWindowState, trackWindowState } from './windowState'
-import { onJobEvent } from './jobs'
+import { onJobEvent, runningJobCount } from './jobs'
 import * as repo from './db/repo'
 import { SUPPORTED_SOURCE_EXT } from './files'
 import { startUsageTracking, onUsage } from './usage'
@@ -34,6 +34,13 @@ function setupLogging(): void {
 protocol.registerSchemesAsPrivileged([{ scheme: 'studywise-file', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }])
 
 let mainWindow: BrowserWindow | null = null
+const IS_MAC = process.platform === 'darwin'
+
+/** Windows draws its own min/max/close buttons over our nav bar; match its colours. */
+function overlayColors(): Electron.TitleBarOverlayOptions {
+  const dark = nativeTheme.shouldUseDarkColors
+  return { color: dark ? '#0b0e14' : '#ffffff', symbolColor: dark ? '#e8ecf3' : '#0e1420', height: 56 }
+}
 const pendingFiles: string[] = []
 let rendererReady = false
 
@@ -93,9 +100,10 @@ function createWindow(): void {
     minHeight: 520,
     show: false,
     title: 'Studywise',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 18, y: 22 },
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#121016' : '#f7f4ee',
+    ...(IS_MAC
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 18, y: 20 } }
+      : { titleBarStyle: 'hidden' as const, titleBarOverlay: overlayColors(), icon: join(__dirname, '../../resources/icon.png') }),
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0b0e14' : '#f8f9fb',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -175,7 +183,7 @@ function setupCsp(): void {
 
 app.whenReady().then(async () => {
   // Packaged builds get the icon from the bundle; in dev, swap out Electron's.
-  if (!app.isPackaged) {
+  if (!app.isPackaged && IS_MAC) {
     try {
       app.dock?.setIcon(join(__dirname, '../../resources/icon.png'))
     } catch {
@@ -184,6 +192,11 @@ app.whenReady().then(async () => {
   }
   initPaths()
   setupLogging()
+  if (!IS_MAC) {
+    // Windows passes "Open with" files on the command line.
+    pendingFiles.push(...process.argv.slice(1).filter((a) => SUPPORTED_SOURCE_EXT.includes(extname(a).toLowerCase())))
+    nativeTheme.on('updated', () => mainWindow?.setTitleBarOverlay?.(overlayColors()))
+  }
   app.setAboutPanelOptions({
     applicationName: 'Studywise',
     applicationVersion: app.getVersion(),
@@ -222,6 +235,7 @@ app.whenReady().then(async () => {
     }
     broadcast({ type: 'job', job: ev.job })
     const j = ev.job
+    if (!IS_MAC && j.finishedAt && runningJobCount() === 0 && BrowserWindow.getAllWindows().length === 0) app.quit()
     if ((j.status === 'done' || j.status === 'error') && j.finishedAt) {
       const focused = BrowserWindow.getFocusedWindow()
       if (!focused && Notification.isSupported()) {
@@ -253,7 +267,9 @@ app.whenReady().then(async () => {
   app.on('browser-window-focus', updateBadge)
 })
 
-// Keep running in the Dock when the window closes, so jobs keep going.
+// Mac: keep running in the Dock when the window closes, so jobs keep going.
+// Elsewhere: quit, unless a job is still running (then quit when it ends).
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  if (IS_MAC) return
+  if (runningJobCount() === 0) app.quit()
 })

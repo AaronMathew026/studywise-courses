@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { keyLabel } from '@shared/keymap'
 import { X, Settings2, Lightbulb, RefreshCw, MessageCircleQuestion, ThumbsUp, SkipForward, ArrowRight, Sparkles, Trophy, Brain, CheckCircle2, XCircle, CircleDot, Database } from 'lucide-react'
 import type { LearnQuestion, LearnAnswer, Mark } from '@shared/questions'
 import { QUESTION_LABELS, QUESTION_TYPES, type LearnSettings, type CustomAction, type QuestionType } from '@shared/types'
@@ -292,7 +293,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
           </div>
           {total > 60 && <ProgressBar value={idx / total} className="mt-1 h-1" />}
         </div>
-        <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Learn settings (⌥⌘,)">
+        <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title={keyLabel("Learn settings (⌥⌘,)")}>
           <Settings2 className="size-5" />
         </Button>
       </div>
@@ -326,11 +327,11 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
                 </Button>
               )}
               {!slot.mark && q.type !== 'match_pairs' && q.type !== 'fill_blank' && (
-                <Button size="sm" variant="ghost" onClick={regenerate} loading={regenerating} title="Regenerate (⌥⌘R)">
+                <Button size="sm" variant="ghost" onClick={regenerate} loading={regenerating} title={keyLabel("Regenerate (⌥⌘R)")}>
                   Regenerate
                 </Button>
               )}
-              <Button size="sm" variant="ghost" onClick={() => explain()} title="Explain (⌘E)">
+              <Button size="sm" variant="ghost" onClick={() => explain()} title={keyLabel("Explain (⌘E)")}>
                 Explain
               </Button>
               {!slot.mark &&

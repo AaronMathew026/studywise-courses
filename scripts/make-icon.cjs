@@ -26,7 +26,33 @@ app.whenReady().then(async () => {
     execFileSync('sips', ['-z', String(s * 2), String(s * 2), join(root, 'build/icon.png'), '--out', join(set, `icon_${s}x${s}@2x.png`)], { stdio: 'ignore' })
   }
   execFileSync('iconutil', ['-c', 'icns', set, '-o', join(root, 'build/icon.icns')])
+  // Windows .ico: PNG-compressed entries at 16–256px.
+  const sizes = [16, 24, 32, 48, 64, 128, 256]
+  const pngs = sizes.map((sz) => {
+    const out = join(set, `ico_${sz}.png`)
+    execFileSync('sips', ['-z', String(sz), String(sz), join(root, 'build/icon.png'), '--out', out], { stdio: 'ignore' })
+    return readFileSync(out)
+  })
+  const header = Buffer.alloc(6)
+  header.writeUInt16LE(0, 0)
+  header.writeUInt16LE(1, 2)
+  header.writeUInt16LE(sizes.length, 4)
+  const dir = Buffer.alloc(16 * sizes.length)
+  let offset = 6 + dir.length
+  sizes.forEach((sz, i) => {
+    const b = i * 16
+    dir.writeUInt8(sz >= 256 ? 0 : sz, b)
+    dir.writeUInt8(sz >= 256 ? 0 : sz, b + 1)
+    dir.writeUInt8(0, b + 2)
+    dir.writeUInt8(0, b + 3)
+    dir.writeUInt16LE(1, b + 4)
+    dir.writeUInt16LE(32, b + 6)
+    dir.writeUInt32LE(pngs[i].length, b + 8)
+    dir.writeUInt32LE(offset, b + 12)
+    offset += pngs[i].length
+  })
+  writeFileSync(join(root, 'build/icon.ico'), Buffer.concat([header, dir, ...pngs]))
   rmSync(set, { recursive: true, force: true })
-  console.log('wrote build/icon.icns, build/icon.png, resources/icon.png')
+  console.log('wrote build/icon.icns, build/icon.ico, build/icon.png, resources/icon.png')
   app.quit()
 })

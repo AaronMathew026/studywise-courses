@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { keyLabel } from '@shared/keymap'
 import { X, Send, Save, Layers, Sparkles, Baby, Telescope, Lightbulb, Workflow, CircleHelp, Copy } from 'lucide-react'
 import { useStore, toast } from '../lib/store'
 import { api, streamCall, errorText } from '../lib/api'
@@ -225,7 +226,7 @@ export function ExplainPanel() {
                 disabled={busy}
                 onClick={() => runMode(q.mode, q.label)}
                 className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-[0.82rem] font-semibold transition-[transform,background] duration-300 hover:bg-accent-soft active:scale-95 disabled:opacity-40"
-                title={`⌥${QUICK.indexOf(q) + 1}`}
+                title={keyLabel(`⌥${QUICK.indexOf(q) + 1}`)}
               >
                 <q.icon className="size-3.5" /> {q.label}
               </button>
@@ -260,7 +261,7 @@ export function ExplainPanel() {
             Make cards from this
           </Button>
           <span className="ml-auto hidden text-[0.75rem] text-muted sm:inline">
-            <Kbd>⌥1</Kbd>–<Kbd>⌥5</Kbd> quick asks
+            <Kbd>{keyLabel("⌥1")}</Kbd>–<Kbd>{keyLabel("⌥5")}</Kbd> quick asks
           </span>
         </div>
       </div>

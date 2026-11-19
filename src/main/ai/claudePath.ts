@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync, accessSync, constants } from 'node:fs'
+import { dirname } from 'node:path'
 import { homedir, userInfo } from 'node:os'
 import { join, delimiter } from 'node:path'
 import type { ClaudeStatus } from '@shared/types'
@@ -12,18 +13,50 @@ let status: ClaudeStatus = { path: null, version: null, loggedIn: false, authMet
 let overridePath: string | null = null
 
 const MARK = '__STUDYWISE_PATH__'
+const IS_WIN = process.platform === 'win32'
+
+/**
+ * How to run a given claude path. On Windows, npm installs a `claude.cmd` shim,
+ * and Node refuses to spawn .cmd files without a shell, so run the package's
+ * cli.js with node instead. The native installer's claude.exe runs as is.
+ */
+export function spawnTarget(path: string, pathEnv: string): { cmd: string; prefix: string[] } {
+  if (IS_WIN && /\.(cmd|bat)$/i.test(path)) {
+    const cli = join(dirname(path), 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js')
+    const nodeCandidates = [join(dirname(path), 'node.exe'), ...pathEnv.split(delimiter).map((d) => join(d, 'node.exe'))]
+    const node = nodeCandidates.find((p) => existsSync(p))
+    if (existsSync(cli) && node) return { cmd: node, prefix: [cli] }
+  }
+  return { cmd: path, prefix: [] }
+}
 
 function run(cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv; timeout?: number } = {}): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolve) => {
-    execFile(cmd, args, { env: opts.env, timeout: opts.timeout ?? 10000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(cmd, args, { env: opts.env, timeout: opts.timeout ?? 10000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as NodeJS.ErrnoException).code === 'number' ? ((err as unknown as { code: number }).code) : 1) : 0
       resolve({ stdout: String(stdout ?? ''), stderr: String(stderr ?? ''), code })
     })
   })
 }
 
+function runClaudeBin(path: string, args: string[], opts: { env?: NodeJS.ProcessEnv; timeout?: number }) {
+  const t = spawnTarget(path, getResolvedPath())
+  return run(t.cmd, [...t.prefix, ...args], opts)
+}
+
 export async function resolveLoginShellPath(force = false): Promise<string> {
   if (cachedPath && !force) return cachedPath
+  if (IS_WIN) {
+    // Windows GUI apps already get the full user PATH.
+    const extras = [
+      process.env.APPDATA && join(process.env.APPDATA, 'npm'),
+      join(homedir(), '.local', 'bin'),
+      process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs', 'claude'),
+      process.env.ProgramFiles && join(process.env.ProgramFiles, 'nodejs')
+    ].filter(Boolean) as string[]
+    cachedPath = [...new Set([...(process.env.PATH ?? process.env.Path ?? '').split(delimiter), ...extras].filter(Boolean))].join(delimiter)
+    return cachedPath
+  }
   let shell = process.env.SHELL
   if (!shell) {
     try {
@@ -69,12 +102,22 @@ function isExecutable(p: string): boolean {
 }
 
 async function npmGlobalBin(pathEnv: string): Promise<string | null> {
+  if (IS_WIN) return null
   const r = await run('npm', ['prefix', '-g'], { env: { ...process.env, PATH: pathEnv, HOME: homedir() }, timeout: 8000 }).catch(() => null)
   const prefix = r?.stdout.trim()
   return prefix ? join(prefix, 'bin') : null
 }
 
 export async function findClaude(pathEnv: string): Promise<string | null> {
+  if (IS_WIN) {
+    for (const dir of pathEnv.split(delimiter)) {
+      for (const name of ['claude.exe', 'claude.cmd']) {
+        const p = join(dir, name)
+        if (dir && existsSync(p)) return p
+      }
+    }
+    return null
+  }
   for (const dir of pathEnv.split(delimiter)) {
     const p = join(dir, 'claude')
     if (dir && existsSync(p) && isExecutable(p)) return p
@@ -95,6 +138,10 @@ export async function findClaude(pathEnv: string): Promise<string | null> {
  * so it always uses the user's own login and never bills an API account. */
 export function childEnv(pathEnv: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, PATH: pathEnv, HOME: homedir() }
+  if (IS_WIN) {
+    delete env.Path
+    env.PATH = pathEnv
+  }
   for (const k of Object.keys(env)) {
     if (/^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|CLAUDE_API_KEY|ANTHROPIC_BASE_URL|CLAUDE_CODE_USE_BEDROCK|CLAUDE_CODE_USE_VERTEX|CLAUDE_CODE_USE_FOUNDRY|AWS_BEARER_TOKEN_BEDROCK|OPENAI_API_KEY)$/.test(k)) delete env[k]
     if (/API_KEY$/.test(k) && /ANTHROPIC|CLAUDE/.test(k)) delete env[k]
@@ -129,13 +176,13 @@ export async function detectClaude(opts: { force?: boolean } = {}): Promise<Clau
     return status
   }
   const env = childEnv(pathEnv)
-  const v = await run(path, ['--version'], { env, timeout: 15000 })
+  const v = await runClaudeBin(path, ['--version'], { env, timeout: 15000 })
   const version = v.stdout.trim().split('\n')[0] || null
   if (!version) {
     status = { path, version: null, loggedIn: false, authMethod: null, error: `Found ${path} but it did not run: ${v.stderr.trim().slice(0, 300)}`, overridePath, mock }
     return status
   }
-  const a = await run(path, ['auth', 'status'], { env, timeout: 15000 })
+  const a = await runClaudeBin(path, ['auth', 'status'], { env, timeout: 15000 })
   let loggedIn = false
   let authMethod: string | null = null
   try {

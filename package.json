@@ -21,7 +21,8 @@
     "icons": "electron scripts/make-icon.cjs",
     "postinstall": "electron-builder install-app-deps",
     "dist": "npm run build && electron-builder --config electron-builder.config.cjs --mac",
-    "dist:arm64": "npm run build && electron-builder --config electron-builder.config.cjs --mac dmg:arm64 zip:arm64"
+    "dist:arm64": "npm run build && electron-builder --config electron-builder.config.cjs --mac dmg:arm64 zip:arm64",
+    "dist:win": "npm run build && electron-builder --config electron-builder.config.cjs --win"
   },
   "dependencies": {
     "better-sqlite3": "^13.2.0",

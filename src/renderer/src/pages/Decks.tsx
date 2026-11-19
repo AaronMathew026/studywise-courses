@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { keyLabel } from '@shared/keymap'
 import { Folder as FolderIcon, FolderPlus, Plus, Layers, MoreHorizontal, Upload, Search, Trash2, Pencil, FolderInput } from 'lucide-react'
 import type { Deck, Folder } from '@shared/types'
 import { useStore, toast } from '../lib/store'
@@ -104,7 +105,7 @@ export function Decks({ folderId }: { folderId: string | null }) {
               }}
             />
           ))}
-          <button onClick={() => runCommand('folder.new')} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[0.85rem] text-muted transition-colors hover:bg-surface-2 hover:text-ink" title="New folder (⇧⌥⌘N)">
+          <button onClick={() => runCommand('folder.new')} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[0.85rem] text-muted transition-colors hover:bg-surface-2 hover:text-ink" title={keyLabel("New folder (⇧⌥⌘N)")}>
             <FolderPlus className="size-4" /> New folder
           </button>
         </div>

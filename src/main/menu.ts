@@ -11,9 +11,11 @@ export function buildMenu(send: (action: string) => void): void {
     return out
   }
 
-  const template: MenuItemConstructorOptions[] = [
-    {
-      label: app.name,
+  const mac = process.platform === 'darwin'
+  const appMenu: MenuItemConstructorOptions[] = mac
+    ? [
+        {
+          label: app.name,
       submenu: [
         { role: 'about' },
         { type: 'separator' },
@@ -27,8 +29,19 @@ export function buildMenu(send: (action: string) => void): void {
         { type: 'separator' },
         { role: 'quit' }
       ]
+        }
+      ]
+    : []
+  const template: MenuItemConstructorOptions[] = [
+    ...appMenu,
+    {
+      label: 'File',
+      submenu: [
+        ...items('File'),
+        { type: 'separator' },
+        ...(mac ? [{ role: 'close' } as MenuItemConstructorOptions] : [{ label: 'Settings', accelerator: 'Ctrl+,', click: () => send('go.settings') }, { type: 'separator' } as MenuItemConstructorOptions, { role: 'quit' } as MenuItemConstructorOptions])
+      ]
     },
-    { label: 'File', submenu: [...items('File'), { type: 'separator' }, { role: 'close' }] },
     {
       label: 'Edit',
       submenu: [
@@ -38,7 +51,7 @@ export function buildMenu(send: (action: string) => void): void {
         { role: 'cut' },
         { role: 'copy' },
         { role: 'paste' },
-        { role: 'pasteAndMatchStyle' },
+        ...(mac ? [{ role: 'pasteAndMatchStyle' } as MenuItemConstructorOptions] : []),
         { role: 'selectAll' },
         ...items('Edit')
       ]
@@ -57,9 +70,11 @@ export function buildMenu(send: (action: string) => void): void {
     { label: 'AI', submenu: items('AI') },
     {
       role: 'window',
-      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }, { label: 'Main Window', accelerator: 'Alt+CmdOrCtrl+0', click: () => BrowserWindow.getAllWindows()[0]?.show() }]
+      submenu: mac
+        ? [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }, { label: 'Main Window', accelerator: 'Alt+CmdOrCtrl+0', click: () => BrowserWindow.getAllWindows()[0]?.show() }]
+        : [{ role: 'minimize' }, { role: 'close' }]
     },
-    { role: 'help', submenu: items('Help') }
+    { role: 'help', submenu: [...items('Help'), ...(mac ? [] : [{ type: 'separator' } as MenuItemConstructorOptions, { role: 'about' } as MenuItemConstructorOptions])] }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }

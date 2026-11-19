@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { keyLabel } from '@shared/keymap'
 import { Search, Plus } from 'lucide-react'
 import { useStore, type Route } from '../lib/store'
 import { cx, Kbd } from './ui'
@@ -113,12 +114,12 @@ export function GooNav() {
         >
           <Search className="size-3.5" />
           <span className="hidden xl:inline">Search</span>
-          <Kbd>⌘K</Kbd>
+          <Kbd>{keyLabel("⌘K")}</Kbd>
         </button>
         <button
           onClick={() => runCommand('gen.cards')}
           className="no-drag inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3 text-[0.85rem] font-medium text-accent-ink transition-[filter,transform] duration-200 hover:brightness-110 active:scale-[0.98]"
-          title="Generate flashcards with AI (⌘G)"
+          title={keyLabel("Generate flashcards with AI (⌘G)")}
         >
           <Plus className="size-4" />
           <span className="hidden sm:inline">Generate</span>
@@ -137,7 +138,7 @@ export function GooNav() {
         ))}
         <button onClick={() => (setOpen(false), runCommand('palette'))}>
           Commands
-          <Kbd className="text-muted">⌘K</Kbd>
+          <Kbd className="text-muted">{keyLabel("⌘K")}</Kbd>
         </button>
       </div>
     </header>
