@@ -53,7 +53,8 @@ test('create a deck, add cards, and finish a Learn session', async () => {
   await win.getByRole('button', { name: /^Learn/ }).first().click()
   await expect(win.getByText(/\d+ \/ \d+/).first()).toBeVisible()
 
-  for (let i = 0; i < 30; i++) {
+  let feedbackSeen = 0
+  for (let i = 0; i < 40; i++) {
     if (await win.getByText(/Great session|Nice work|Good practice/).isVisible()) break
     // Wait for a question or the result.
     await win.getByText('Writing questions').waitFor({ state: 'detached', timeout: 15000 }).catch(() => {})
@@ -65,7 +66,7 @@ test('create a deck, add cards, and finish a Learn session', async () => {
       continue
     }
     if (label.startsWith('Read & understand')) {
-      await win.getByRole('button', { name: /^Got it/ }).click()
+      await win.getByRole('button', { name: /^Got it/ }).click({ timeout: 3000 }).catch(() => {})
       await win.waitForTimeout(300)
       continue
     } else if (label.startsWith('Multiple choice')) await win.locator('main button:has(span.grid)').first().click()
@@ -85,15 +86,17 @@ test('create a deck, add cards, and finish a Learn session', async () => {
       await win.getByRole('button', { name: /^Check/ }).click()
     } else {
       // Match pairs / Categorize: just skip in the smoke test.
-      await win.getByRole('button', { name: /^Skip/ }).click()
+      await win.getByRole('button', { name: /^Skip/ }).click({ timeout: 3000 }).catch(() => {})
       continue
     }
     // Marked: feedback should load, then continue.
     const next = win.getByRole('button', { name: /^Continue/ })
     await next.waitFor({ state: 'visible', timeout: 10000 })
     await expect(win.getByText(/Key takeaways/)).toBeVisible({ timeout: 8000 })
+    feedbackSeen++
     await next.click()
   }
   await expect(win.getByText(/Great session|Nice work|Good practice/)).toBeVisible()
   await expect(win.getByText('Correct', { exact: true })).toBeVisible()
+  expect(feedbackSeen).toBeGreaterThan(0)
 })

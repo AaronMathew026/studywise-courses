@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync, accessSync, constants } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, userInfo } from 'node:os'
 import { join, delimiter } from 'node:path'
 import type { ClaudeStatus } from '@shared/types'
 
@@ -24,7 +24,15 @@ function run(cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv; timeo
 
 export async function resolveLoginShellPath(force = false): Promise<string> {
   if (cachedPath && !force) return cachedPath
-  const shell = process.env.SHELL || '/bin/zsh'
+  let shell = process.env.SHELL
+  if (!shell) {
+    try {
+      shell = userInfo().shell ?? undefined
+    } catch {
+      /* ignore */
+    }
+  }
+  shell ||= '/bin/zsh'
   const script = `printf '${MARK}%s${MARK}' "$PATH"`
   let found = ''
   for (const flags of [['-ilc'], ['-lc']]) {

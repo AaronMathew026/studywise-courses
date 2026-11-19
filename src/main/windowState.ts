@@ -8,13 +8,24 @@ interface WindowState {
   width: number
   height: number
   maximized: boolean
+  v?: number
 }
 
-const DEFAULT: WindowState = { width: 1280, height: 820, maximized: false }
+const VERSION = 3
+
+/** First launch: most of the screen, centred. */
+function defaultState(): WindowState {
+  const area = screen.getPrimaryDisplay().workArea
+  const width = Math.min(area.width, Math.max(1180, Math.round(area.width * 0.75)))
+  const height = Math.min(area.height, Math.max(780, Math.round(area.height * 0.82)))
+  return { x: area.x + Math.round((area.width - width) / 2), y: area.y + Math.round((area.height - height) / 2), width, height, maximized: false, v: VERSION }
+}
 
 export function loadWindowState(): WindowState {
+  const DEFAULT = defaultState()
   try {
     const s = JSON.parse(readFileSync(paths.windowState, 'utf8')) as WindowState
+    if (s.v !== VERSION) return DEFAULT
     if (s.x !== undefined && s.y !== undefined) {
       // Only reuse the position if it's still on a connected display.
       const visible = screen.getAllDisplays().some((d) => intersects(d.workArea, { x: s.x!, y: s.y!, width: s.width, height: s.height }))
@@ -35,7 +46,7 @@ export function trackWindowState(win: BrowserWindow): void {
   const save = () => {
     if (win.isDestroyed()) return
     const b = win.getNormalBounds()
-    const s: WindowState = { x: b.x, y: b.y, width: b.width, height: b.height, maximized: win.isMaximized() }
+    const s: WindowState = { x: b.x, y: b.y, width: b.width, height: b.height, maximized: win.isMaximized(), v: VERSION }
     try {
       writeFileSync(paths.windowState, JSON.stringify(s))
     } catch {

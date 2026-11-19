@@ -18,10 +18,10 @@
     "test:e2e": "npm run build && cross-env AI_MOCK=1 playwright test",
     "ai:smoke": "cross-env TSX_TSCONFIG_PATH=tsconfig.node.json ELECTRON_RUN_AS_NODE=1 electron ./node_modules/tsx/dist/cli.mjs scripts/ai-smoke.ts",
     "ai:real-check": "cross-env TSX_TSCONFIG_PATH=tsconfig.node.json ELECTRON_RUN_AS_NODE=1 electron ./node_modules/tsx/dist/cli.mjs scripts/real-check.ts",
-    "icons": "node scripts/make-icon.mjs",
+    "icons": "electron scripts/make-icon.cjs",
     "postinstall": "electron-builder install-app-deps",
-    "dist": "npm run build && electron-builder --config electron-builder.config.cjs --mac --arm64 --x64",
-    "dist:arm64": "npm run build && electron-builder --config electron-builder.config.cjs --mac --arm64"
+    "dist": "npm run build && electron-builder --config electron-builder.config.cjs --mac",
+    "dist:arm64": "npm run build && electron-builder --config electron-builder.config.cjs --mac dmg:arm64 zip:arm64"
   },
   "dependencies": {
     "better-sqlite3": "^13.2.0",

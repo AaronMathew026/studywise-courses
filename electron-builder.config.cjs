@@ -1,0 +1,58 @@
+// electron-builder config. Signing + notarization only happen when the
+// relevant env vars are present; otherwise the build is ad-hoc signed
+// (fine for personal use, see README for first launch).
+const hasCert = !!(process.env.CSC_LINK || process.env.CSC_NAME)
+const canNotarize =
+  hasCert && !!process.env.APPLE_ID && !!process.env.APPLE_TEAM_ID && !!(process.env.APPLE_APP_SPECIFIC_PASSWORD || process.env.APPLE_ID_PASSWORD)
+
+if (process.env.APPLE_ID_PASSWORD && !process.env.APPLE_APP_SPECIFIC_PASSWORD) process.env.APPLE_APP_SPECIFIC_PASSWORD = process.env.APPLE_ID_PASSWORD
+
+console.log(`[studywise] signing: ${hasCert ? 'Developer ID' : 'ad-hoc (no certificate)'} · notarize: ${canNotarize ? 'yes' : 'no'}`)
+
+/** @type {import('electron-builder').Configuration} */
+module.exports = {
+  appId: 'com.studywise.app',
+  productName: 'Studywise',
+  copyright: 'Studywise',
+  directories: { output: 'release', buildResources: 'build' },
+  files: ['out/**/*', 'resources/**/*', 'package.json', '!**/*.map'],
+  asarUnpack: ['resources/**', '**/*.node'],
+  npmRebuild: true,
+  mac: {
+    category: 'public.app-category.education',
+    artifactName: 'Studywise-mac.${ext}',
+    icon: 'build/icon.icns',
+    target: [
+      { target: 'dmg', arch: ['universal'] },
+      { target: 'zip', arch: ['universal'] }
+    ],
+    minimumSystemVersion: '12.0',
+    darkModeSupport: true,
+    hardenedRuntime: hasCert,
+    gatekeeperAssess: false,
+    identity: hasCert ? undefined : '-',
+    entitlements: hasCert ? 'build/entitlements.mac.plist' : undefined,
+    entitlementsInherit: hasCert ? 'build/entitlements.mac.plist' : undefined,
+    notarize: canNotarize,
+    mergeASARs: true,
+    x64ArchFiles: '**/*.node',
+    extendInfo: {
+      NSHumanReadableCopyright: 'Studywise',
+      LSApplicationCategoryType: 'public.app-category.education'
+    }
+  },
+  fileAssociations: [
+    { ext: 'pdf', name: 'PDF Document', role: 'Viewer', rank: 'Alternate' },
+    { ext: 'docx', name: 'Word Document', role: 'Viewer', rank: 'Alternate' },
+    { ext: 'pptx', name: 'PowerPoint Presentation', role: 'Viewer', rank: 'Alternate' }
+  ],
+  dmg: {
+    artifactName: 'Studywise.${ext}',
+    title: 'Studywise',
+    contents: [
+      { x: 150, y: 190, type: 'file' },
+      { x: 390, y: 190, type: 'link', path: '/Applications' }
+    ],
+    window: { width: 540, height: 380 }
+  }
+}

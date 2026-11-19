@@ -168,6 +168,14 @@ function setupCsp(): void {
 }
 
 app.whenReady().then(async () => {
+  // Packaged builds get the icon from the bundle; in dev, swap out Electron's.
+  if (!app.isPackaged) {
+    try {
+      app.dock?.setIcon(join(__dirname, '../../resources/icon.png'))
+    } catch {
+      /* icon missing */
+    }
+  }
   initPaths()
   setupLogging()
   app.setAboutPanelOptions({

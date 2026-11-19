@@ -285,7 +285,7 @@ export function App() {
       {focus && <div className="drag h-9 shrink-0" />}
       <SetupBanner />
       <main className="relative min-h-0 flex-1">
-        <div key={pageKey} className="page-in absolute inset-0 overflow-y-auto">
+        <div key={pageKey} className="page-in absolute inset-0 overflow-y-auto [scrollbar-gutter:stable]">
           {!ready ? (
             <div className="grid h-full place-items-center">
               <Spinner className="size-6 text-muted" />
