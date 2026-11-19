@@ -1,50 +1,47 @@
 # Studywise
 
-Flashcards, notes and revision for macOS and Windows, with Claude doing the tedious parts.
+A flashcard and notes app for Mac and Windows.
 
-Drop in a lecture PDF and it writes notes in your style, turns them into exam-style flashcards, quizzes you with eight question types, marks what you write and explains what you got wrong. It reads the PDF itself, so tables, screenshots and diagrams count too.
+You give it a lecture PDF. It makes notes and flashcards from it, then quizzes you and marks your answers.
 
-The AI runs through [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on your Mac, on your own Claude subscription. No API keys, no server.
+It uses Claude Code on your computer, so you need a Claude account.
 
 ![Studywise](docs/screenshots/home.png)
 
 | | |
 |---|---|
 | ![Learn](docs/screenshots/learn-feedback.png) | ![Notes](docs/screenshots/notes.png) |
-| ![Deck](docs/screenshots/deck.png) | ![Review generated cards](docs/screenshots/preview.png) |
+| ![Deck](docs/screenshots/deck.png) | ![Generated cards](docs/screenshots/preview.png) |
 
-## Install
+## Setup
 
-You need Claude Code installed and signed in:
+Install Claude Code and log in:
 
 ```sh
 npm install -g @anthropic-ai/claude-code
-claude   # sign in once
+claude
 ```
 
-Then build it:
+Then build the app:
 
 ```sh
 npm install
-npm run dist       # Mac → release/Studywise.dmg (Apple silicon + Intel)
-npm run dist:win   # Windows → release/Studywise-Setup.exe (x64), works from a Mac too
+npm run dist       # Mac: release/Studywise.dmg
+npm run dist:win   # Windows: release/Studywise-Setup.exe
 ```
 
-Neither build is code-signed. On a Mac, right-click the app and choose **Open** the first time (or run `xattr -dr com.apple.quarantine /Applications/Studywise.app`). On Windows, SmartScreen will warn: click **More info → Run anyway**. To sign and notarize the Mac build, set `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` before building.
+The app isn't signed. On a Mac, right-click it and pick Open the first time. On Windows, click More info, then Run anyway.
 
-## Develop
+## Development
 
 ```sh
-npm run dev        # hot reload
+npm run dev        # run the app
 npm test           # unit tests
-npm run test:e2e   # Playwright smoke test
-npm run ai:smoke   # check the Claude bridge
+npm run test:e2e   # end-to-end test
 ```
 
-`AI_MOCK=1` swaps every AI call for canned output.
+Set `AI_MOCK=1` to use fake AI replies instead of Claude.
 
-## More
+More detail is in [docs/how-it-works.md](docs/how-it-works.md).
 
-[How it works](docs/how-it-works.md) covers the Claude bridge, models and prompts, Learn mode, spaced repetition, import/export formats, shortcuts and where your data lives.
-
-Each person uses their own Claude login and subscription, subject to [Anthropic's terms](https://www.anthropic.com/legal/consumer-terms). Not affiliated with Anthropic or StudySmarter.
+Not affiliated with Anthropic or StudySmarter.
