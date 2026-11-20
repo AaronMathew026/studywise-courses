@@ -251,10 +251,10 @@ export function mockResponse(task: TaskId, mode: string, vars: Record<string, un
           h({ type: 'explain', q: 'Explain what the threshold frequency is.', model: 'The lowest frequency of light that can free electrons from a metal.', points: ['lowest frequency', 'frees electrons', 'depends on the metal'] })
         ],
         cards: [
-          { front: 'What is a photoelectron?', back: 'An electron knocked out of a metal by light' },
-          { front: 'What is the work function?', back: 'The minimum energy needed to free an electron from a metal' },
-          { front: 'What is the threshold frequency?', back: 'The lowest light frequency that frees electrons' },
-          { front: 'Does brighter light give faster photoelectrons?', back: '- No\n- brighter light means more photons, not more energy per photon' }
+          { front: 'What is a photoelectron?', back: 'An electron knocked out of a metal by light', section: 1 },
+          { front: 'What is the work function?', back: 'The minimum energy needed to free an electron from a metal', section: 2 },
+          { front: 'What is the threshold frequency?', back: 'The lowest light frequency that frees electrons', section: 2 },
+          { front: 'Does brighter light give faster photoelectrons?', back: '- No\n- brighter light means more photons, not more energy per photon', section: 3 }
         ]
       }
       return { text: JSON.stringify(out), structured: out }

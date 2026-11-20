@@ -104,6 +104,8 @@ The topic is a run of short sections. Each section is one screen of notes, follo
 If a slide has a diagram, graph, table or screenshot that helps, show that slide with "figure": "file" is the attached PDF's file name, "page" is the 1-based page within that attached file (not the number printed on the slide), and "caption" says what to look at in one line.
 Put it on the section it illustrates, at most one per section. Only use pages you've actually looked at, and only when the picture adds something the words don't. No title slides and no slides that are just bullet points. Otherwise "figure" is null.
 
+You can also draw your own diagram inside "notes" when a picture explains it better than words and no slide shows it (how data moves through a pipeline, what's in memory, a before/after). Put it in a \`\`\`svg code block: one self-contained <svg> with a viewBox, simple shapes, arrows and short labels, dark strokes and text on a white background, font-family="sans-serif" and text at least 12px, no scripts, no external images or fonts. Keep it small (under about 40 shapes), at most one per section, and only where it really helps. For a plain flowchart a \`\`\`mermaid block is fine instead.
+
 == QUESTIONS ==
 Every question must be answerable from the notes I've read so far in this topic. Never test something before teaching it.
 
@@ -129,7 +131,9 @@ Rules:
 "check": after the last section, 5–8 mixed questions across the whole topic, a bit harder than the section questions. Include at least one explain question and at least one scenario.
 
 == RECALL CARDS ==
-"cards": 8–15 flashcards for this topic. They're used later for spaced repetition, and for surprise recall questions while I'm learning other topics, so each card must make sense completely on its own: no "according to the above" or "in this topic". Short "front", short "back" (bullets are fine). Cover the definitions, key lists, contrasts and anything stressed.
+"cards": 8–15 flashcards for this topic. I see each section's cards straight after its notes and before its questions, so I know the key definitions before I'm tested on them. They're also used later for spaced repetition and surprise recall questions, so each card must make sense completely on its own: no "according to the above" or "in this topic". Short "front", short "back" (bullets are fine). Cover the definitions, key lists, contrasts and anything stressed.
+- "section": the number (1, 2, 3…) of the section that teaches the card. Every key term a section introduces gets a card in that section, so most sections have 1–3 cards.
+- A card only uses what its section, or an earlier one, has taught.
 
 {{instructions}}`,
     is_default: true

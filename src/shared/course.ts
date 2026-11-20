@@ -65,7 +65,8 @@ export const AiTopic = z.object({
   goal: z.string().default(''),
   sections: z.array(AiSection).min(1),
   check: z.array(CourseQuestion).default([]),
-  cards: z.array(z.object({ front: z.string(), back: z.string() })).default([])
+  /** section: 1-based number of the section that teaches the card, so it's shown before that section's questions. */
+  cards: z.array(z.object({ front: z.string(), back: z.string(), section: z.number().int().nullable().default(null) })).default([])
 })
 export type AiTopic = z.infer<typeof AiTopic>
 
@@ -90,6 +91,8 @@ export interface TopicSection {
   heading: string
   notes: string
   figure: Figure | null
+  /** Flashcards for what this section teaches, shown after its notes and before its questions. Missing on topics written before this. */
+  cards?: { front: string; back: string }[]
   questions: CourseQuestion[]
 }
 export interface TopicContent {
