@@ -12,6 +12,9 @@ export type Route =
   | { name: 'notes'; id?: string | null }
   | { name: 'settings'; tab?: string }
   | { name: 'jobs' }
+  | { name: 'courses' }
+  | { name: 'course'; id: string }
+  | { name: 'topic'; id: string }
 
 export interface Toast {
   id: number
@@ -56,6 +59,10 @@ interface State {
   openGenNotes: (p: GeneratorPrefill | null) => void
   preview: { cards: PreviewCardT[]; deckId: string | null; jobId?: string; presetName?: string } | null
   openPreview: (p: State['preview']) => void
+
+  /** Files for the New course dialog; null when it's closed. */
+  newCourse: string[] | null
+  openNewCourse: (files: string[] | null) => void
 
   palette: boolean
   setPalette: (v: boolean) => void
@@ -121,6 +128,9 @@ export const useStore = create<State>((set, get) => ({
   openGenNotes: (p) => set({ genNotes: p }),
   preview: null,
   openPreview: (p) => set({ preview: p }),
+
+  newCourse: null,
+  openNewCourse: (f) => set({ newCourse: f }),
 
   palette: false,
   setPalette: (v) => set({ palette: v }),

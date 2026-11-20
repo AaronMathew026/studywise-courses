@@ -437,7 +437,7 @@ function Figure({ label, value, accent }: { label: string; value: React.ReactNod
   )
 }
 
-function DeckSettings({ deck, onClose, onSaved }: { deck: Deck; onClose: () => void; onSaved: () => void }) {
+export function DeckSettings({ deck, onClose, onSaved }: { deck: Deck; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(deck.name)
   const [description, setDescription] = useState(deck.description)
   const [extra, setExtra] = useState(deck.extra_instructions)

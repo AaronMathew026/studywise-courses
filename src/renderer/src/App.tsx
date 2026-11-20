@@ -1,5 +1,5 @@
 import { useEffect, useState, lazy, Suspense } from 'react'
-import { AlertTriangle, X, FileUp, NotebookPen, Layers, Terminal } from 'lucide-react'
+import { AlertTriangle, X, FileUp, NotebookPen, Layers, Terminal, GraduationCap } from 'lucide-react'
 import { useStore, toast, type Route } from './lib/store'
 import { api, onEvent, errorText } from './lib/api'
 import { startCommandDispatch, useCommands, runCommand } from './lib/commands'
@@ -18,8 +18,11 @@ import { DeckPage } from './pages/Deck'
 import { Flashcards } from './pages/Flashcards'
 import { Notes } from './pages/Notes'
 import { Jobs } from './pages/Jobs'
+import { Courses, NewCourseModal } from './pages/Courses'
+import { CoursePage } from './pages/Course'
 
 const Learn = lazy(() => import('./pages/Learn').then((m) => ({ default: m.Learn })))
+const TopicPage = lazy(() => import('./pages/Topic').then((m) => ({ default: m.TopicPage })))
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })))
 
 type Theme = 'system' | 'light' | 'dark'
@@ -49,6 +52,14 @@ export function App() {
       const z = Number(s['ui.zoom'] ?? 1)
       setZoom(z)
       const last = s['ui.lastRoute'] as Route | undefined
+      if (last && last.name === 'course') {
+        try {
+          await api.courses.get({ id: last.id })
+          useStore.setState({ route: last })
+        } catch {
+          /* gone */
+        }
+      }
       if (last && (last.name === 'deck' || last.name === 'notes')) {
         try {
           if (last.name === 'deck') await api.decks.get({ id: last.id })
@@ -80,6 +91,7 @@ export function App() {
   // Remember the last open deck / note.
   useEffect(() => {
     if (!ready) return
+    if (route.name === 'course') void api.settings.set({ key: 'ui.lastRoute', value: route })
     if (route.name === 'deck' || (route.name === 'notes' && route.id)) void api.settings.set({ key: 'ui.lastRoute', value: route.name === 'deck' ? { name: 'deck', id: route.id } : route })
   }, [route, ready])
 
@@ -106,6 +118,10 @@ export function App() {
           if (j.status === 'done' && j.kind === 'generate_notes') {
             st.bump()
             toast(`${j.title.replace(/^Notes: /, '')}: notes ready`, 'good')
+          }
+          if (j.kind === 'course_outline' || j.kind === 'course_topic') {
+            st.bump()
+            if (j.status === 'done') toast(j.kind === 'course_outline' ? `${j.title.replace(/^Plan: /, '')}: topics planned` : `${j.title.replace(/^Topic: /, '')} is ready`, 'good')
           }
           if (j.status === 'error') toast(`${j.title}: ${j.error}`, 'bad', { label: 'Jobs', run: () => st.go({ name: 'jobs' }) })
         }
@@ -152,6 +168,7 @@ export function App() {
     {
       'go.home': () => go({ name: 'home' }),
       'go.decks': () => go({ name: 'decks' }),
+      'go.courses': () => go({ name: 'courses' }),
       'go.notes': () => go({ name: 'notes', id: (useStore.getState().route as { id?: string }).id ?? null }),
       'go.jobs': () => go({ name: 'jobs' }),
       'view.jobs': () => go({ name: 'jobs' }),
@@ -267,7 +284,7 @@ export function App() {
       e.preventDefault()
       depth = 0
       setDragging(false)
-      const files = [...(e.dataTransfer?.files ?? [])].map((f) => window.studywise.pathForFile(f)).filter((p) => /\.(pdf|docx|pptx|txt|md|markdown)$/i.test(p))
+      const files = [...(e.dataTransfer?.files ?? [])].map((f) => window.studywise.pathForFile(f)).filter((p) => /\.(pdf|docx|pptx|txt|md|markdown|vtt|srt)$/i.test(p))
       if (files.length) useStore.getState().setDropFiles(files)
     }
     window.addEventListener('dragenter', enter)
@@ -305,6 +322,7 @@ export function App() {
       <ExplainPanel />
       <GenerateCardsModal />
       <GenerateNotesModal />
+      <NewCourseModal />
       <CardPreviewModal />
       <CommandPalette />
       <ShortcutSheet />
@@ -316,7 +334,7 @@ export function App() {
         <div className="fade-in pointer-events-none fixed inset-3 z-[70] grid place-items-center rounded-xl border-4 border-dashed border-accent bg-accent-soft/80 backdrop-blur-sm">
           <div className="pop-in flex flex-col items-center gap-3 text-center">
             <FileUp className="size-12 text-accent" />
-            <div className="text-2xl font-semibold">Drop to generate notes or flashcards</div>
+            <div className="text-2xl font-semibold">Drop to make a course, notes or flashcards</div>
             <div className="text-muted">PDF, Word, PowerPoint, text or Markdown</div>
           </div>
         </div>
@@ -343,6 +361,12 @@ function Page({ route }: { route: Route }) {
       return <Settings tab={route.tab} />
     case 'jobs':
       return <Jobs />
+    case 'courses':
+      return <Courses />
+    case 'course':
+      return <CoursePage id={route.id} />
+    case 'topic':
+      return <TopicPage id={route.id} />
   }
 }
 
@@ -395,9 +419,10 @@ function DropChooser() {
   const set = useStore((s) => s.setDropFiles)
   if (!files) return null
   const names = files.map((f) => f.split('/').pop()).join(', ')
-  const pick = (kind: 'notes' | 'cards') => {
+  const pick = (kind: 'course' | 'notes' | 'cards') => {
     set(null)
-    if (kind === 'notes') useStore.getState().openGenNotes({ files })
+    if (kind === 'course') useStore.getState().openNewCourse(files)
+    else if (kind === 'notes') useStore.getState().openGenNotes({ files })
     else {
       const r = useStore.getState().route
       useStore.getState().openGenCards({ files, deckId: r.name === 'deck' ? r.id : null })
@@ -405,19 +430,20 @@ function DropChooser() {
   }
   return (
     <div data-modal className="fade-in fixed inset-0 z-[65] grid place-items-center bg-black/30 p-4 backdrop-blur-[3px]" onMouseDown={(e) => e.target === e.currentTarget && set(null)} onKeyDown={(e) => e.key === 'Escape' && set(null)}>
-      <div className="pop-in w-full max-w-[620px] rounded-xl border border-line bg-bg p-6 shadow-2xl">
+      <div className="pop-in w-full max-w-[860px] rounded-xl border border-line bg-bg p-6 shadow-2xl">
         <h2 className="text-xl font-semibold">What should we make?</h2>
         <p className="mt-1 truncate text-muted">{names}</p>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
           {(
             [
+              ['course', GraduationCap, 'Make a course', 'Split it into topics and learn them in short sections with questions'],
               ['notes', NotebookPen, 'Generate notes', 'Structured study notes in your style, streamed into the editor'],
               ['cards', Layers, 'Generate flashcards', 'Exam-style cards, with a preview to check and fix before saving']
             ] as const
           ).map(([k, Icon, title, sub]) => (
             <button
               key={k}
-              autoFocus={k === 'notes'}
+              autoFocus={k === 'course'}
               onClick={() => pick(k)}
               className="group flex flex-col items-start gap-3 rounded-xl border border-line bg-surface p-5 text-left transition-[transform,box-shadow,border-color] duration-500 ease-out-soft hover:border-accent active:scale-[0.98]"
             >

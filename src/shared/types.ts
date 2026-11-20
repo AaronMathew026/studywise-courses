@@ -194,7 +194,7 @@ export type AiCall = z.infer<typeof AiCall>
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 export interface JobInfo {
   id: string
-  kind: 'generate_notes' | 'generate_cards' | 'other'
+  kind: 'generate_notes' | 'generate_cards' | 'course_outline' | 'course_topic' | 'other'
   title: string
   status: JobStatus
   progress: string

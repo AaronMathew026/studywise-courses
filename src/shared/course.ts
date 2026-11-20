@@ -1,0 +1,414 @@
+import { z } from 'zod'
+import { normalizeAnswer, blankMatches, markInCode, verdictFor } from './marking'
+import type { BlankSegment } from './blanks'
+import type { LearnQuestion, LearnAnswer, Mark } from './questions'
+import type { Thresholds } from './types'
+
+// Courses: an outline of topics, each topic a run of short sections
+// (notes, then a few questions), a topic check at the end, and recall cards.
+
+// ---------------------------------------------------------------------------
+// What Claude returns
+
+export const OutlineSource = z.object({ file: z.string(), where: z.string().default('') })
+export const OutlineTopic = z.object({
+  id: z.string(),
+  title: z.string().min(1),
+  goal: z.string().default(''),
+  sections: z.array(z.string()).default([]),
+  sources: z.array(OutlineSource).default([]),
+  needs: z.array(z.string()).default([]),
+  stressed: z.array(z.string()).default([]),
+  minutes: z.number().default(15)
+})
+export type OutlineTopic = z.infer<typeof OutlineTopic>
+export const CourseOutline = z.object({ course: z.string().default(''), topics: z.array(OutlineTopic).min(1) })
+export type CourseOutline = z.infer<typeof CourseOutline>
+
+const extra = { hint: z.string().default(''), why: z.string().default('') }
+// Kept loose on purpose: one bad question shouldn't throw away a whole topic.
+// sanitizeQuestion() drops the ones that can't be used.
+export const CourseQuestion = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('mcq'), q: z.string(), options: z.array(z.string()), answer: z.number().int(), ...extra }),
+  z.object({ type: z.literal('true_false'), q: z.string(), answer: z.boolean(), ...extra }),
+  z.object({ type: z.literal('fill_blank'), text: z.string(), ...extra }),
+  z.object({ type: z.literal('wrong_word'), text: z.string(), wrong: z.string(), correct: z.string(), ...extra }),
+  z.object({ type: z.literal('order'), q: z.string(), items: z.array(z.string()), ...extra }),
+  z.object({ type: z.literal('match'), q: z.string(), pairs: z.array(z.object({ term: z.string(), meaning: z.string() })), ...extra }),
+  z.object({ type: z.literal('sort'), q: z.string(), buckets: z.array(z.string()), items: z.array(z.object({ item: z.string(), bucket: z.string() })), ...extra }),
+  z.object({ type: z.literal('explain'), q: z.string(), model: z.string(), points: z.array(z.string()), ...extra })
+])
+export type CourseQuestion = z.infer<typeof CourseQuestion>
+export type CourseQuestionType = CourseQuestion['type']
+
+export const COURSE_QUESTION_LABELS: Record<CourseQuestionType, string> = {
+  mcq: 'Multiple choice',
+  true_false: 'True or false',
+  fill_blank: 'Fill in the blank',
+  wrong_word: 'Spot the wrong word',
+  order: 'Put in order',
+  match: 'Match up',
+  sort: 'Sort',
+  explain: 'In your own words'
+}
+
+export const AiFigure = z.object({ file: z.string(), page: z.number().int(), caption: z.string().default('') })
+export const AiSection = z.object({
+  heading: z.string(),
+  notes: z.string(),
+  figure: AiFigure.nullable().default(null),
+  questions: z.array(CourseQuestion).default([])
+})
+export const AiTopic = z.object({
+  id: z.string().default(''),
+  title: z.string(),
+  goal: z.string().default(''),
+  sections: z.array(AiSection).min(1),
+  check: z.array(CourseQuestion).default([]),
+  cards: z.array(z.object({ front: z.string(), back: z.string() })).default([])
+})
+export type AiTopic = z.infer<typeof AiTopic>
+
+export const CourseMarkOut = z.object({
+  score: z.number().min(0).max(10),
+  got: z.array(z.string()).default([]),
+  missed: z.array(z.string()).default([]),
+  wrong: z.string().default(''),
+  feedback: z.string().default('')
+})
+export type CourseMarkOut = z.infer<typeof CourseMarkOut>
+
+// ---------------------------------------------------------------------------
+// What the app stores
+
+export interface Figure {
+  fileId: string
+  page: number
+  caption: string
+}
+export interface TopicSection {
+  heading: string
+  notes: string
+  figure: Figure | null
+  questions: CourseQuestion[]
+}
+export interface TopicContent {
+  title: string
+  goal: string
+  sections: TopicSection[]
+  check: CourseQuestion[]
+}
+
+export interface TopicProgress {
+  /** Section to resume at. Equal to sections.length once the sections are done. */
+  section: number
+  done: boolean
+  answered: number
+  correct: number
+  checkScore: number | null
+  checkTotal: number | null
+  lastStudied: string | null
+}
+export const emptyProgress = (): TopicProgress => ({ section: 0, done: false, answered: 0, correct: 0, checkScore: null, checkTotal: null, lastStudied: null })
+
+export type TopicStatus = 'planned' | 'writing' | 'ready' | 'error'
+
+export interface Topic {
+  id: string
+  course_id: string
+  week_id: string
+  key: string
+  position: number
+  plan: OutlineTopic
+  status: TopicStatus
+  error: string | null
+  content: TopicContent | null
+  progress: TopicProgress
+  card_count: number
+  updated_at: string
+}
+
+export interface CourseFile {
+  id: string
+  course_id: string
+  week_id: string
+  name: string
+  path: string
+  pages: number | null
+}
+
+export type WeekStatus = 'empty' | 'planning' | 'ready' | 'error'
+
+export interface Week {
+  id: string
+  course_id: string
+  position: number
+  label: string
+  status: WeekStatus
+  error: string | null
+  created_at: string
+}
+
+export interface WeekFull extends Week {
+  files: CourseFile[]
+  topics: Topic[]
+}
+
+export interface Course {
+  id: string
+  name: string
+  module: string
+  level: string
+  deck_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CourseFull extends Course {
+  weeks: WeekFull[]
+}
+
+export interface CourseSummary extends Course {
+  week_count: number
+  planning: boolean
+  topic_count: number
+  ready_count: number
+  done_count: number
+  due_count: number
+}
+
+// ---------------------------------------------------------------------------
+// Cleaning up what comes back
+
+const wordRe = (w: string) => new RegExp(`(^|[^\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^\\p{L}\\p{N}])`, 'giu')
+
+/** Returns a usable question, or null when it can't be asked as written. */
+export function sanitizeQuestion(q: CourseQuestion): CourseQuestion | null {
+  const t = (s: string) => s.trim()
+  switch (q.type) {
+    case 'mcq': {
+      const options = q.options.map(t).filter(Boolean)
+      if (!t(q.q) || options.length < 2 || options.length !== q.options.length || q.answer < 0 || q.answer >= options.length) return null
+      return { ...q, options }
+    }
+    case 'true_false':
+      return t(q.q) ? q : null
+    case 'fill_blank':
+      return parseBlanks(q.text).answers.length > 0 ? q : null
+    case 'wrong_word': {
+      const wrong = t(q.wrong)
+      if (!wrong || !t(q.correct) || normalizeAnswer(wrong) === normalizeAnswer(q.correct)) return null
+      // The wrong word has to be in the sentence exactly once, or a tap is ambiguous.
+      const hits = [...q.text.matchAll(wordRe(wrong))].length
+      if (hits !== 1 || wrong.includes(' ')) return null
+      return { ...q, wrong }
+    }
+    case 'order': {
+      const items = q.items.map(t).filter(Boolean)
+      return items.length >= 3 && new Set(items).size === items.length ? { ...q, items } : null
+    }
+    case 'match': {
+      const pairs = q.pairs.filter((p) => t(p.term) && t(p.meaning))
+      return pairs.length >= 2 ? { ...q, pairs } : null
+    }
+    case 'sort': {
+      const buckets = q.buckets.map(t).filter(Boolean)
+      const items = q.items.filter((i) => t(i.item) && buckets.some((b) => normalizeAnswer(b) === normalizeAnswer(i.bucket)))
+      return buckets.length >= 2 && items.length >= 3 ? { ...q, buckets, items } : null
+    }
+    case 'explain':
+      return t(q.q) && t(q.model) ? { ...q, points: q.points.map(t).filter(Boolean) } : null
+  }
+}
+
+export function sanitizeQuestions(qs: CourseQuestion[]): CourseQuestion[] {
+  return qs.map(sanitizeQuestion).filter((q): q is CourseQuestion => q !== null)
+}
+
+// ---------------------------------------------------------------------------
+// fill_blank: "Passing tests is [[evidence|support]] of correctness, not [[proof]]."
+
+export function parseBlanks(text: string): { segments: BlankSegment[]; answers: string[]; alternatives: string[][] } {
+  const segments: BlankSegment[] = []
+  const answers: string[] = []
+  const alternatives: string[][] = []
+  let last = 0
+  for (const m of text.matchAll(/\[\[([^\]]+?)\]\]/g)) {
+    const start = m.index ?? 0
+    if (start > last) segments.push({ type: 'text', value: text.slice(last, start) })
+    const alts = m[1].split('|').map((s) => s.trim()).filter(Boolean)
+    if (alts.length) {
+      segments.push({ type: 'blank', value: alts[0] })
+      answers.push(alts[0])
+      alternatives.push(alts)
+    }
+    last = start + m[0].length
+  }
+  if (last < text.length) segments.push({ type: 'text', value: text.slice(last) })
+  return { segments, answers, alternatives }
+}
+
+// wrong_word: the sentence split into tappable words (punctuation stays attached).
+export function wordTokens(text: string): string[] {
+  return text.split(/\s+/).filter(Boolean)
+}
+export function tokenIs(token: string, word: string): boolean {
+  return normalizeAnswer(token.replace(/[^\p{L}\p{N}'’-]/gu, '')) === normalizeAnswer(word)
+}
+
+// ---------------------------------------------------------------------------
+// Rendering with the Learn components
+
+export type CourseAnswer = LearnAnswer | { type: 'wrong_word'; index: number } | { type: 'order'; order: number[] }
+
+/** The six types that map straight onto an existing Learn question component. */
+export function asLearnQuestion(q: CourseQuestion, id: string): LearnQuestion | null {
+  const common = { id, card_id: '', card_ids: [], cached: false }
+  switch (q.type) {
+    case 'mcq':
+      return { ...common, type: 'multiple_choice', payload: { question: q.q, options: q.options, correct_index: q.answer } }
+    case 'true_false':
+      return { ...common, type: 'true_false', payload: { statement: q.q, is_true: q.answer, correction: '' } }
+    case 'fill_blank': {
+      const b = parseBlanks(q.text)
+      return { ...common, type: 'fill_blank', payload: { prompt: '', segments: b.segments, answers: b.answers } }
+    }
+    case 'match':
+      return { ...common, type: 'match_pairs', payload: { pairs: q.pairs.map((p) => ({ left: p.term, right: p.meaning, card_id: '' })) } }
+    case 'sort':
+      return {
+        ...common,
+        type: 'categorize',
+        payload: { categories: q.buckets, items: q.items.map((i) => ({ text: i.item, category: q.buckets.find((b) => normalizeAnswer(b) === normalizeAnswer(i.bucket)) ?? i.bucket })) }
+      }
+    case 'explain':
+      return { ...common, type: 'free_answer', payload: { question: q.q, expected_answer: q.model } }
+    default:
+      return null
+  }
+}
+
+/** Mark everything except explain (which goes to Claude). */
+export function markCourseAnswer(q: CourseQuestion, a: CourseAnswer, t?: Thresholds): Mark | null {
+  switch (q.type) {
+    case 'wrong_word': {
+      if (a.type !== 'wrong_word') throw new Error('Answer does not match the question')
+      const ok = tokenIs(wordTokens(q.text)[a.index] ?? '', q.wrong)
+      return { score: ok ? 10 : 0, verdict: ok ? 'correct' : 'wrong', by: 'code' }
+    }
+    case 'order': {
+      if (a.type !== 'order') throw new Error('Answer does not match the question')
+      const wrongItems = a.order.map((orig, pos) => (orig === pos ? -1 : pos)).filter((p) => p >= 0)
+      const right = q.items.length - wrongItems.length
+      if (right === q.items.length) return { score: 10, verdict: 'correct', detail: { wrongItems }, by: 'code' }
+      const score = Math.round((right / q.items.length) * 100) / 10
+      const v = verdictFor(score, t)
+      return { score, verdict: v === 'correct' ? 'partial' : v, detail: { wrongItems }, by: 'code' }
+    }
+    case 'fill_blank': {
+      if (a.type !== 'fill_blank') throw new Error('Answer does not match the question')
+      const { alternatives } = parseBlanks(q.text)
+      const blanks = alternatives.map((alts, i) => alts.some((alt) => blankMatches(a.values[i] ?? '', alt)))
+      const ok = blanks.every(Boolean)
+      return { score: ok ? 10 : 0, verdict: ok ? 'correct' : 'wrong', detail: { blanks }, by: 'code' }
+    }
+    case 'explain':
+      return null
+    default: {
+      const lq = asLearnQuestion(q, 'q')!
+      return markInCode(lq, a as LearnAnswer, t)
+    }
+  }
+}
+
+/** Plain text of a question, for Explain and recall. */
+export function questionText(q: CourseQuestion): string {
+  switch (q.type) {
+    case 'mcq':
+      return `${q.q}\n${q.options.map((o, i) => `${String.fromCharCode(65 + i)}. ${o}`).join('\n')}`
+    case 'true_false':
+      return `True or false: ${q.q}`
+    case 'fill_blank':
+      return parseBlanks(q.text).segments.map((s) => (s.type === 'blank' ? '_____' : s.value)).join('')
+    case 'wrong_word':
+      return `Which word is wrong? ${q.text}`
+    case 'order':
+      return `${q.q}\n${q.items.map((i) => `- ${i}`).join('\n')}`
+    case 'match':
+      return `${q.q}\n${q.pairs.map((p) => `- ${p.term}`).join('\n')}`
+    case 'sort':
+      return `${q.q} (${q.buckets.join(' / ')})\n${q.items.map((i) => `- ${i.item}`).join('\n')}`
+    case 'explain':
+      return q.q
+  }
+}
+
+export function expectedText(q: CourseQuestion): string {
+  switch (q.type) {
+    case 'mcq':
+      return q.options[q.answer] ?? ''
+    case 'true_false':
+      return q.answer ? 'True' : 'False'
+    case 'fill_blank':
+      return parseBlanks(q.text).answers.join(', ')
+    case 'wrong_word':
+      return `"${q.wrong}" should be "${q.correct}"`
+    case 'order':
+      return q.items.map((s, i) => `${i + 1}. ${s}`).join('\n')
+    case 'match':
+      return q.pairs.map((p) => `${p.term}: ${p.meaning}`).join('\n')
+    case 'sort':
+      return q.items.map((i) => `${i.item} → ${i.bucket}`).join('\n')
+    case 'explain':
+      return q.model
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Page ranges from the outline's "where": "slides 4–19", "pp. 3-7", "4, 6, 9–12"
+
+export function pageList(where: string, max: number): number[] {
+  if (/\d{1,2}:\d{2}/.test(where)) return [] // timestamps, not pages
+  const out = new Set<number>()
+  for (const m of where.matchAll(/(\d+)\s*(?:[-–—]|to)\s*(\d+)|(\d+)/g)) {
+    const a = Number(m[1] ?? m[3])
+    const b = Number(m[2] ?? m[3])
+    for (let p = Math.max(1, Math.min(a, b)); p <= Math.min(max, Math.max(a, b)); p++) out.add(p)
+  }
+  return [...out].sort((x, y) => x - y)
+}
+
+/**
+ * Merge outlines written file by file: same title → same topic. Ids become t1…tn.
+ * `known` are ids from earlier weeks that "needs" may point at.
+ */
+export function mergeOutlines(parts: CourseOutline[], known: string[] = []): CourseOutline {
+  const topics: OutlineTopic[] = []
+  for (const part of parts) {
+    // Ids are only unique within one part; "needs" can also name a final id from an earlier part.
+    const local = new Map<string, string>()
+    const touched: { target: OutlineTopic; needs: string[] }[] = []
+    for (const t of part.topics) {
+      const existing = topics.find((x) => normalizeAnswer(x.title) === normalizeAnswer(t.title))
+      if (existing) {
+        local.set(t.id, existing.id)
+        for (const s of t.sections) if (!existing.sections.some((x) => normalizeAnswer(x) === normalizeAnswer(s))) existing.sections.push(s)
+        existing.sources.push(...t.sources)
+        existing.stressed.push(...t.stressed.filter((s) => !existing.stressed.includes(s)))
+        existing.minutes = Math.min(30, existing.minutes + Math.round(t.minutes / 2))
+        touched.push({ target: existing, needs: t.needs })
+      } else {
+        const id = `t${topics.length + 1}`
+        local.set(t.id, id)
+        const nt = { ...t, id, sections: [...t.sections], sources: [...t.sources], stressed: [...t.stressed], needs: [] }
+        topics.push(nt)
+        touched.push({ target: nt, needs: t.needs })
+      }
+    }
+    for (const { target, needs } of touched) {
+      const mapped = needs.map((n) => local.get(n) ?? n).filter((n) => n !== target.id && (topics.some((x) => x.id === n) || known.includes(n)))
+      target.needs = [...new Set([...target.needs, ...mapped])]
+    }
+  }
+  return { course: parts.find((p) => p.course)?.course ?? '', topics }
+}

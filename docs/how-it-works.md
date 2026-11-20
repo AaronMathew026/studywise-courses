@@ -1,4 +1,19 @@
-# How Studywise works
+# How Studywise Courses works
+
+## Courses
+
+A course is a run of weeks, and each week has its own files (PDF slides, transcripts as .txt/.vtt/.srt, Word, PowerPoint, Markdown). Files are copied into the course's folder, so moving the originals doesn't break anything.
+
+**Planning a week.** The week's files are read as text (PDFs with `[page N]` markers; scanned PDFs are sent as files instead) and sent with the outline prompt, along with the topics earlier weeks already have. Over about 300k characters, the week is planned one file at a time and the results are merged by title. Topics get course-wide ids like `w2t3`. Planning a week again replaces its topics.
+
+**Writing a topic.** Only the topic's own week's files are sent, and PDFs are cut down to the pages in the outline's `sources` (a short PDF with no page range goes whole). Figures come back as a page in that excerpt and are mapped to the original page, then rendered to a PNG with pdf.js and cached. Questions that can't be asked as written are dropped. Recall cards go into the course's deck (one per course), tagged with the topic, replacing that topic's old cards.
+
+**Learning.** Each section shows its notes, then its questions; after the last section comes the topic check. Multiple choice, true/false, fill in the blank (with alternatives), spot the wrong word, put in order, match and sort are marked in code; "in your own words" answers are marked by Claude out of 10. "I was right" overrides any mark. Progress is saved at each section, so you can leave and come back. After a section there's a 1 in 4 chance of a recall card from another topic you've started, due cards first; your answer goes into spaced repetition.
+
+**Models.** The three course tasks are in Settings → Models like every other task (any model name, any effort). Course → ⋯ → Models & instructions overrides them for one course and adds extra instructions to its prompts.
+
+`npm run ai:course-check` plans a week and writes a topic from the test PDF with real Claude calls (Sonnet by default, `-- --model=opus` to change). `node scripts/course-shots.mjs [dir]` walks through a mock course and screenshots each step.
+
 
 ## Talking to Claude
 

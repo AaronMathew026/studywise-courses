@@ -1,8 +1,10 @@
-# Studywise
+# Studywise Courses
 
-A flashcard and notes app for Mac and Windows.
+A course, flashcard and notes app for Mac and Windows.
 
-You give it a lecture PDF. It makes notes and flashcards from it, then quizzes you and marks your answers.
+Make a course for a module, then add each week's slides, transcripts and readings. Claude splits every week into topics and teaches each one in short sections: a screen of notes (with the slide's figure if it helps), a few quick questions, then the next bit. Each topic ends with a check and leaves recall cards that pop up while you learn other topics and in spaced review.
+
+It also keeps everything from Studywise: give it a lecture PDF and it makes notes and flashcards, then quizzes you and marks your answers.
 
 It uses Claude Code on your computer, so you need a Claude account.
 
@@ -26,8 +28,8 @@ Then build the app:
 
 ```sh
 npm install
-npm run dist       # Mac: release/Studywise.dmg
-npm run dist:win   # Windows: release/Studywise-Setup.exe
+npm run dist       # Mac: release/Studywise-Courses.dmg
+npm run dist:win   # Windows: release/Studywise-Courses-Setup.exe
 ```
 
 The app isn't signed. On a Mac, right-click it and pick Open the first time. On Windows, click More info, then Run anyway.

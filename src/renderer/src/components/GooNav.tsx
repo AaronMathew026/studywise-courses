@@ -11,6 +11,7 @@ import { UsageMeter } from './UsageMeter'
 
 const LINKS: { label: string; route: Route; match: Route['name'][]; key: string }[] = [
   { label: 'Home', route: { name: 'home' }, match: ['home'], key: '⌘1' },
+  { label: 'Courses', route: { name: 'courses' }, match: ['courses', 'course', 'topic'], key: 'g c' },
   { label: 'Decks', route: { name: 'decks' }, match: ['decks', 'deck', 'flashcards', 'learn'], key: '⌘2' },
   { label: 'Notes', route: { name: 'notes' }, match: ['notes'], key: '⌘3' },
   { label: 'Jobs', route: { name: 'jobs' }, match: ['jobs'], key: '⌘4' },
@@ -74,7 +75,7 @@ export function GooNav() {
       <nav className="nav-inset relative flex h-[var(--nav-h)] items-center gap-3 pr-3 sm:pr-4">
         <button onClick={() => navTo({ name: 'home' })} className="no-drag flex items-center gap-2 pr-2">
           <Logo />
-          <span className="hidden text-[0.95rem] font-semibold tracking-[-0.01em] sm:inline">Studywise</span>
+          <span className="hidden text-[0.95rem] font-semibold tracking-[-0.01em] sm:inline">Studywise Courses</span>
         </button>
 
         <div className="pointer-events-none absolute inset-y-0 left-1/2 hidden -translate-x-1/2 items-center min-[900px]:flex">

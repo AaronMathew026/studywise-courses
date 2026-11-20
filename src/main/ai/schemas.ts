@@ -10,6 +10,7 @@ import {
   GeneratedCards
 } from '@shared/questions'
 import type { TaskId } from '@shared/tasks'
+import { CourseOutline, AiTopic, CourseMarkOut } from '@shared/course'
 
 /** Output schemas for json presets. These live in code and are always appended,
  * so editing a prompt can change behaviour but never break parsing. */
@@ -23,7 +24,10 @@ export const TASK_SCHEMAS: Partial<Record<TaskId, z.ZodType>> = {
   feedback_wrong: FeedbackWrong,
   feedback_right: FeedbackRight,
   hint: HintOut,
-  custom_action: GeneratedCards
+  custom_action: GeneratedCards,
+  course_outline: CourseOutline,
+  course_topic: AiTopic,
+  course_mark: CourseMarkOut
 }
 
 export function schemaFor(task: TaskId): z.ZodType {
@@ -35,7 +39,9 @@ export function schemaFor(task: TaskId): z.ZodType {
 export function jsonSchemaFor(task: TaskId): Record<string, unknown> {
   const js = z.toJSONSchema(schemaFor(task), { target: 'draft-7', io: 'input', unrepresentable: 'any' }) as Record<string, unknown>
   delete js.$schema
-  return js
+  // Discriminated unions come out as oneOf; anyOf is more widely supported and
+  // means the same here, since each branch has its own "type" constant.
+  return JSON.parse(JSON.stringify(js).replace(/"oneOf":/g, '"anyOf":')) as Record<string, unknown>
 }
 
 export function formatInstructions(task: TaskId): string {

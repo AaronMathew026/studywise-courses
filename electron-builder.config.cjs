@@ -11,8 +11,8 @@ console.log(`[studywise] signing: ${hasCert ? 'Developer ID' : 'ad-hoc (no certi
 
 /** @type {import('electron-builder').Configuration} */
 module.exports = {
-  appId: 'com.studywise.app',
-  productName: 'Studywise',
+  appId: 'com.studywise.courses',
+  productName: 'Studywise Courses',
   copyright: 'Studywise',
   directories: { output: 'release', buildResources: 'build' },
   files: ['out/**/*', 'resources/**/*', 'package.json', '!**/*.map'],
@@ -21,7 +21,7 @@ module.exports = {
   npmRebuild: false,
   mac: {
     category: 'public.app-category.education',
-    artifactName: 'Studywise-mac.${ext}',
+    artifactName: 'Studywise-Courses-mac.${ext}',
     icon: 'build/icon.icns',
     target: [
       { target: 'dmg', arch: ['universal'] },
@@ -48,7 +48,7 @@ module.exports = {
       { target: 'nsis', arch: ['x64'] },
       { target: 'zip', arch: ['x64'] }
     ],
-    artifactName: 'Studywise-win-${arch}.${ext}'
+    artifactName: 'Studywise-Courses-win-${arch}.${ext}'
   },
   nsis: {
     oneClick: false,
@@ -56,8 +56,8 @@ module.exports = {
     allowToChangeInstallationDirectory: true,
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
-    shortcutName: 'Studywise',
-    artifactName: 'Studywise-Setup.${ext}'
+    shortcutName: 'Studywise Courses',
+    artifactName: 'Studywise-Courses-Setup.${ext}'
   },
   fileAssociations: [
     { ext: 'pdf', name: 'PDF Document', role: 'Viewer', rank: 'Alternate' },
@@ -74,8 +74,8 @@ module.exports = {
     enableCookieEncryption: true
   },
   dmg: {
-    artifactName: 'Studywise.${ext}',
-    title: 'Studywise',
+    artifactName: 'Studywise-Courses.${ext}',
+    title: 'Studywise Courses',
     contents: [
       { x: 150, y: 190, type: 'file' },
       { x: 390, y: 190, type: 'link', path: '/Applications' }

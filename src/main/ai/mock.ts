@@ -188,6 +188,92 @@ export function mockResponse(task: TaskId, mode: string, vars: Record<string, un
     case 'note_fix_formatting':
     case 'note_expand':
       return { text: `${v('source_text').trim()}\n\n- (${task.replace('note_', '')}d by mock)`, structured: null }
+    case 'course_outline': {
+      const file = v('files').split(',')[0]?.replace(/\s*\(\d+ pages\)\s*$/, '').trim() || 'source.pdf'
+      const titles = ['What the photoelectric effect is', 'Work function and threshold frequency', 'Why classical physics fails']
+      const out = {
+        course: v('module') || 'Mock course',
+        topics: titles.map((title, i) => ({
+          id: `t${i + 1}`,
+          title,
+          goal: `After this you can explain ${title.toLowerCase()}.`,
+          sections: ['What is it?', 'Key terms:', 'X vs Y:'],
+          sources: [{ file, where: `pages ${i * 4 + 1}–${i * 4 + 4}` }],
+          needs: i ? [`t${i}`] : [],
+          stressed: i === 0 ? ['Electrons are emitted instantly'] : [],
+          minutes: 12
+        }))
+      }
+      return { text: JSON.stringify(out), structured: out }
+    }
+    case 'course_topic': {
+      const attached = prompt.match(/current working directory: ([^\n]+?)\. Read/)?.[1]?.split(', ')[0] ?? ''
+      const title = v('topic_title') || 'Mock topic'
+      const h = (x: Record<string, unknown>) => ({ hint: 'Look back at the notes you just read.', why: 'Because that is what the notes say, basically.', ...x })
+      const out = {
+        id: v('topic_id'),
+        title,
+        goal: `After this you can explain ${title.toLowerCase()}.`,
+        sections: [
+          {
+            heading: `What is ${title.toLowerCase()}?`,
+            notes: `This is the main idea in one plain sentence. Sounds good, right?\n\n**Photoelectron:**\n- this is an electron knocked out of a metal by light\n\nRemember: electrons come out instantly, with no delay.`,
+            figure: null,
+            questions: [
+              h({ type: 'mcq', q: 'What is a photoelectron?', options: ['An electron knocked out by light', 'A photon inside a metal', 'A proton freed by heat', 'An ion made by sound'], answer: 0 }),
+              h({ type: 'true_false', q: 'Electrons come out after a short delay.', answer: false }),
+              h({ type: 'match', q: 'Match each term to its meaning.', pairs: [{ term: 'Photon', meaning: 'A packet of light' }, { term: 'Photoelectron', meaning: 'An electron freed by light' }, { term: 'Metal', meaning: 'Where the electrons start' }] })
+            ]
+          },
+          {
+            heading: 'Key terms:',
+            notes: `| Term | Simple meaning |\n|---|---|\n| Work function | energy needed to free an electron |\n| Threshold frequency | lowest frequency that works |\n\nImagine a vending machine that only takes £1 coins: lots of 50p coins won't do it.`,
+            figure: attached ? { file: attached, page: 2, caption: 'Look at how the current only starts above the threshold.' } : null,
+            questions: [
+              h({ type: 'fill_blank', text: 'The [[work function|work-function]] is the energy needed to free an electron.' }),
+              h({ type: 'wrong_word', text: 'The threshold frequency is the highest frequency that frees electrons.', wrong: 'highest', correct: 'lowest' }),
+              h({ type: 'order', q: 'Put the steps in order.', items: ['Light hits the metal', 'A photon gives its energy to one electron', 'The electron escapes if the energy beats the work function'] })
+            ]
+          },
+          {
+            heading: 'Wave vs particle:',
+            notes: `Wave model: brighter light should eventually free electrons.\nParticle model: only the frequency matters.\n\nThe trade off is that: neither model alone explains everything.`,
+            figure: null,
+            questions: [
+              h({ type: 'sort', q: 'Which model predicts each?', buckets: ['Wave', 'Particle'], items: [{ item: 'Delay at low brightness', bucket: 'Wave' }, { item: 'Threshold frequency', bucket: 'Particle' }, { item: 'Instant emission', bucket: 'Particle' }, { item: 'Any frequency works', bucket: 'Wave' }] }),
+              h({ type: 'explain', q: 'Why does brighter red light still not free electrons?', model: 'Each photon of red light has too little energy, and one photon frees one electron, so more photons does not help.', points: ['each photon has too little energy', 'one photon frees one electron', 'brightness only adds more photons'] })
+            ]
+          }
+        ],
+        check: [
+          h({ type: 'true_false', q: 'Doubling the brightness doubles the energy of each photoelectron.', answer: false }),
+          h({ type: 'mcq', q: 'A metal has a high work function. What do you need?', options: ['Higher frequency light', 'Brighter light', 'Longer exposure', 'A warmer metal'], answer: 0 }),
+          h({ type: 'explain', q: 'Explain what the threshold frequency is.', model: 'The lowest frequency of light that can free electrons from a metal.', points: ['lowest frequency', 'frees electrons', 'depends on the metal'] })
+        ],
+        cards: [
+          { front: 'What is a photoelectron?', back: 'An electron knocked out of a metal by light' },
+          { front: 'What is the work function?', back: 'The minimum energy needed to free an electron from a metal' },
+          { front: 'What is the threshold frequency?', back: 'The lowest light frequency that frees electrons' },
+          { front: 'Does brighter light give faster photoelectrons?', back: '- No\n- brighter light means more photons, not more energy per photon' }
+        ]
+      }
+      return { text: JSON.stringify(out), structured: out }
+    }
+    case 'course_mark': {
+      const exp = new Set(words(v('model')))
+      const got = new Set(words(v('answer')).filter((w) => exp.has(w)))
+      const score = Math.round(Math.min(10, (exp.size ? got.size / exp.size : 0) * 14))
+      const points = v('points').split('\n').map((p) => p.replace(/^-\s*/, '').trim()).filter(Boolean)
+      const hit = points.filter((p) => words(p).some((w) => got.has(w)))
+      const out = {
+        score,
+        got: hit,
+        missed: points.filter((p) => !hit.includes(p)),
+        wrong: '',
+        feedback: score >= 8 ? 'Nice, you nailed the main idea.' : 'You got part of it. Have another look at the key points you missed.'
+      }
+      return { text: JSON.stringify(out), structured: out }
+    }
   }
 }
 

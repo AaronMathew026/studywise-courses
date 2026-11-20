@@ -1,0 +1,164 @@
+import { useEffect, useState } from 'react'
+import { GraduationCap, Plus, FileText, X, Upload } from 'lucide-react'
+import type { CourseSummary } from '@shared/course'
+import { useStore, toast } from '../lib/store'
+import { api, errorText } from '../lib/api'
+import { Shell, PageTitle } from '../components/Shell'
+import { Button, Card, Empty, Field, Input, Modal, Pill, ProgressBar, Textarea } from '../components/ui'
+
+export function Courses() {
+  const go = useStore((s) => s.go)
+  const version = useStore((s) => s.version)
+  const openNew = useStore((s) => s.openNewCourse)
+  const [courses, setCourses] = useState<CourseSummary[] | null>(null)
+  useEffect(() => void api.courses.list().then(setCourses), [version])
+
+  return (
+    <Shell>
+      <PageTitle
+        title="Courses"
+        actions={
+          <Button variant="primary" onClick={() => openNew([])}>
+            <Plus className="size-4" /> New course
+          </Button>
+        }
+      >
+        Make a course for a module, then add each week’s slides, transcripts and readings as you go. Claude splits every week into topics and teaches each one in short sections, with questions as you go.
+      </PageTitle>
+      {courses && courses.length === 0 && (
+        <Empty icon={<GraduationCap className="size-8" />} title="No courses yet">
+          <p className="mb-4">Start with week 1, or with nothing at all, and add weeks as the module goes on.</p>
+          <Button variant="primary" onClick={() => openNew([])}>
+            <Plus className="size-4" /> New course
+          </Button>
+        </Empty>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {courses?.map((c) => (
+          <Card key={c.id} onClick={() => go({ name: 'course', id: c.id })} className="flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="text-[1.05rem] leading-snug font-semibold">{c.name}</h3>
+              {c.planning && <Pill tone="accent">Planning…</Pill>}
+            </div>
+            <div className="text-[0.88rem] text-muted">
+              {c.week_count} week{c.week_count === 1 ? '' : 's'} · {c.topic_count ? `${c.topic_count} topic${c.topic_count === 1 ? '' : 's'} · ${c.done_count} done` : c.planning ? 'planning topics…' : 'no topics yet'}
+            </div>
+            {c.topic_count > 0 && <ProgressBar value={c.done_count / c.topic_count} />}
+            {c.due_count > 0 && <div className="text-[0.85rem] font-semibold text-accent">{c.due_count} recall card{c.due_count === 1 ? '' : 's'} due</div>}
+          </Card>
+        ))}
+      </div>
+    </Shell>
+  )
+}
+
+/** Picked or dropped course files, with a remove button each. */
+export function FileDrop({ list, setList }: { list: string[]; setList: (f: string[]) => void }) {
+  const add = (more: string[]) => setList([...new Set([...list, ...more.filter((f) => ACCEPT.test(f))])])
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-xl border-2 border-dashed border-line bg-surface p-3"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        add([...e.dataTransfer.files].map((f) => window.studywise.pathForFile(f)))
+      }}
+    >
+      {list.map((f) => (
+        <div key={f} className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-[0.9rem]">
+          <FileText className="size-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1 truncate">{f.split(/[\\/]/).pop()}</span>
+          <button onClick={() => setList(list.filter((x) => x !== f))} aria-label="Remove" className="text-muted hover:text-ink">
+            <X className="size-4" />
+          </button>
+        </div>
+      ))}
+      <div className="flex items-center gap-3">
+        <Button variant="soft" onClick={async () => add(await api.app.pickFiles({ kind: 'course' }))}>
+          <Upload className="size-4" /> Add files
+        </Button>
+        {!list.length && <span className="text-[0.85rem] text-muted">or drop slides, transcripts and readings here</span>}
+      </div>
+    </div>
+  )
+}
+
+const ACCEPT = /\.(pdf|docx|pptx|txt|md|markdown|vtt|srt)$/i
+
+export function NewCourseModal() {
+  const files = useStore((s) => s.newCourse)
+  const open = useStore((s) => s.openNewCourse)
+  const go = useStore((s) => s.go)
+  const [name, setName] = useState('')
+  const [level, setLevel] = useState('')
+  const [weekLabel, setWeekLabel] = useState('Week 1')
+  const [list, setList] = useState<string[]>([])
+  const [instructions, setInstructions] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!files) return
+    setList(files)
+    setName('')
+    setWeekLabel('Week 1')
+    setInstructions('')
+    void api.settings.all().then((s) => setLevel(String(s['profile.level'] ?? '')))
+  }, [files])
+
+  if (!files) return null
+  const close = () => open(null)
+  const create = async () => {
+    if (!name.trim()) return
+    setBusy(true)
+    try {
+      const c = await api.courses.create({ name: name.trim(), level: level.trim(), weekLabel: weekLabel.trim(), files: list, instructions })
+      close()
+      useStore.getState().bump()
+      go({ name: 'course', id: c.id })
+    } catch (e) {
+      toast(errorText(e), 'bad')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={close}
+      title="New course"
+      footer={
+        <>
+          <Button variant="ghost" onClick={close}>
+            Cancel
+          </Button>
+          <Button variant="primary" loading={busy} disabled={!name.trim()} onClick={create}>
+            {list.length ? 'Create and plan week' : 'Create course'}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <Field label="Module">
+          <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Software Engineering 2" onKeyDown={(e) => e.key === 'Enter' && void create()} />
+        </Field>
+        <Field label="Your level" hint="Used in every prompt, e.g. “second-year CS undergraduate”.">
+          <Input value={level} onChange={(e) => setLevel(e.target.value)} placeholder="e.g. second-year undergraduate" />
+        </Field>
+        <div className="rounded-xl bg-surface-2/60 p-4">
+          <div className="mb-3 text-[0.85rem] text-muted">Add the first week’s material now, or leave it and add weeks from the course page.</div>
+          <Field label="First week">
+            <Input value={weekLabel} onChange={(e) => setWeekLabel(e.target.value)} placeholder="Week 1" />
+          </Field>
+          <div className="mt-3">
+            <FileDrop list={list} setList={setList} />
+          </div>
+        </div>
+        <Field label="Anything else? (optional)" hint="e.g. “The exam is all short answers” or “Skip the guest lecture”.">
+          <Textarea rows={2} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+        </Field>
+      </div>
+    </Modal>
+  )
+}

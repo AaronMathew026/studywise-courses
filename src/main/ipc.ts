@@ -12,6 +12,8 @@ import { startJob, cancelJob, listJobs, clearFinishedJobs, getJob } from './jobs
 import * as gen from './services/generate'
 import * as learn from './services/learn'
 import * as explain from './services/explain'
+import * as course from './services/course'
+import { CourseQuestion } from '@shared/course'
 import * as io from './importexport'
 import { backupLibrary, restoreLibrary } from './backup'
 import { paths } from './paths'
@@ -176,9 +178,10 @@ export const handlers = {
       writeFileSync(join(paths.attachments, fname), data)
       return `studywise-file://attachments/${fname}`
     }),
-    pickFiles: h(z.object({ kind: z.enum(['sources', 'cards', 'notes']) }), ({ kind }, ctx) => {
+    pickFiles: h(z.object({ kind: z.enum(['sources', 'cards', 'notes', 'course']) }), ({ kind }, ctx) => {
       const filters: Record<string, Electron.FileFilter[]> = {
         sources: [{ name: 'Documents', extensions: ['pdf', 'docx', 'pptx', 'txt', 'md', 'markdown'] }],
+        course: [{ name: 'Slides, transcripts and readings', extensions: course.COURSE_SOURCE_EXT.map((e) => e.slice(1)) }],
         cards: [{ name: 'Cards', extensions: ['txt', 'xlsx', 'csv', 'json'] }],
         notes: [{ name: 'Notes', extensions: ['md', 'markdown', 'txt', 'zip', 'pdf'] }]
       }
@@ -320,6 +323,68 @@ export const handlers = {
     save: h(z.object({ deckId: id, cards: z.array(PreviewCardSchema).max(5000) }), (i) =>
       repo.createCards(i.cards.map(({ key: _k, ...c }) => ({ ...c, deck_id: i.deckId, required_points: c.required_points ?? null, source: c.source ?? null, language: c.language ?? null }))).length
     )
+  },
+
+  courses: {
+    list: h(none, () => course.listCourses()),
+    get: h(z.object({ id }), (i) => course.getCourse(i.id)),
+    create: h(z.object({ name: z.string().min(1).max(200), level: z.string().max(200).default(''), weekLabel: z.string().max(100).default(''), files: z.array(z.string()).max(200).default([]), instructions: z.string().max(4000).default('') }), async (i) => {
+      const c = course.createCourse(i)
+      const w = course.addWeek(c.id, i.weekLabel)
+      if (i.files.length) {
+        await course.addFiles(w.id, i.files)
+        startJob('course_outline', `Plan: ${c.name} · ${w.label}`, (ctx) => course.planWeek(w.id, ctx, i.instructions))
+      }
+      return c
+    }),
+    addWeek: h(z.object({ courseId: id, label: z.string().max(100).default(''), files: z.array(z.string()).max(200).default([]), instructions: z.string().max(4000).default('') }), async (i) => {
+      const w = course.addWeek(i.courseId, i.label)
+      if (i.files.length) {
+        await course.addFiles(w.id, i.files)
+        startJob('course_outline', `Plan: ${course.getCourse(i.courseId).name} · ${w.label}`, (ctx) => course.planWeek(w.id, ctx, i.instructions))
+      }
+      return w
+    }),
+    renameWeek: h(z.object({ weekId: id, label: z.string().min(1).max(100) }), (i) => course.renameWeek(i.weekId, i.label)),
+    deleteWeek: h(z.object({ weekId: id }), (i) => course.deleteWeek(i.weekId)),
+    addFiles: h(z.object({ weekId: id, files: z.array(z.string()).min(1).max(200) }), (i) => course.addFiles(i.weekId, i.files)),
+    removeFile: h(z.object({ fileId: id }), (i) => course.removeFile(i.fileId)),
+    plan: h(z.object({ weekId: id, instructions: z.string().max(4000).default('') }), (i) => {
+      const c = course.getCourse(course.getCourseIdForWeek(i.weekId))
+      const w = c.weeks.find((x) => x.id === i.weekId)!
+      return startJob('course_outline', `Plan: ${c.name} · ${w.label}`, (ctx) => course.planWeek(i.weekId, ctx, i.instructions))
+    }),
+    write: h(z.object({ topicIds: z.array(id).min(1).max(200), instructions: z.string().max(4000).default('') }), (i) => {
+      const topics = i.topicIds.map((tid) => course.getTopic(tid)).filter((t) => t.status !== 'writing')
+      return topics.map((t) => startJob('course_topic', `Topic: ${t.plan.title}`, (ctx) => course.writeTopic(t.id, ctx, i.instructions)))
+    }),
+    topic: h(z.object({ id }), (i) => course.getTopic(i.id)),
+    figure: h(z.object({ fileId: id, page: z.number().int().min(1) }), (i) => course.figureUrl(i.fileId, i.page)),
+    progress: h(
+      z.object({
+        topicId: id,
+        progress: z.object({
+          section: z.number().int().min(0),
+          done: z.boolean(),
+          answered: z.number().int().min(0),
+          correct: z.number().min(0),
+          checkScore: z.number().nullable(),
+          checkTotal: z.number().nullable(),
+          lastStudied: z.string().nullable()
+        })
+      }),
+      (i) => course.saveProgress(i.topicId, i.progress)
+    ),
+    resetProgress: h(z.object({ topicId: id }), (i) => course.resetTopicProgress(i.topicId)),
+    mark: h(z.object({ courseId: id, question: CourseQuestion, answer: z.string().max(20000) }), (i) => {
+      if (i.question.type !== 'explain') throw new Error('Only explain questions are marked by Claude')
+      return course.markExplain(i.courseId, i.question, i.answer)
+    }),
+    recall: h(z.object({ courseId: id, excludeTopicId: id, exclude: z.array(z.string()).max(500).default([]) }), (i) => course.recallCard(i.courseId, i.excludeTopicId, i.exclude)),
+    recallReview: h(z.object({ cardId: id, knew: z.boolean() }), (i) => course.recallReview(i.cardId, i.knew)),
+    saveNote: h(z.object({ topicId: id }), (i) => course.topicAsNote(i.topicId)),
+    rename: h(z.object({ id, name: z.string().min(1).max(200) }), (i) => course.renameCourse(i.id, i.name)),
+    delete: h(z.object({ id, keepDeck: z.boolean().default(false) }), (i) => course.deleteCourse(i.id, i.keepDeck))
   },
 
   jobs: {

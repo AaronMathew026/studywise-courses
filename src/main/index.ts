@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Notification, protocol, session, shell, net, nativeTheme } from 'electron'
-import { join, extname, normalize } from 'node:path'
+import { join, extname, normalize, sep } from 'node:path'
+import { recoverInterrupted } from './services/course'
 import { appendFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { initPaths, paths } from './paths'
@@ -198,13 +199,14 @@ app.whenReady().then(async () => {
     nativeTheme.on('updated', () => mainWindow?.setTitleBarOverlay?.(overlayColors()))
   }
   app.setAboutPanelOptions({
-    applicationName: 'Studywise',
+    applicationName: 'Studywise Courses',
     applicationVersion: app.getVersion(),
     version: `Electron ${process.versions.electron}`,
     credits: 'AI features run through your own Claude Code login.'
   })
   openDb(paths.db)
   seedPresets()
+  recoverInterrupted()
   aiQueue.setLimit(repo.getSetting<number>('ai.concurrency', 3))
   setOverridePath(repo.getSetting<string | null>('claude.overridePath', null))
   const theme = repo.getSetting<'system' | 'light' | 'dark'>('ui.theme', 'system')
@@ -214,7 +216,7 @@ app.whenReady().then(async () => {
     const u = new URL(req.url)
     const rel = normalize(decodeURIComponent(`${u.hostname}${u.pathname}`))
     const full = join(paths.userData, rel)
-    if (!full.startsWith(paths.attachments)) return new Response('Forbidden', { status: 403 })
+    if (!full.startsWith(paths.attachments + sep) && !(full.startsWith(paths.courses + sep) && full.endsWith('.png'))) return new Response('Forbidden', { status: 403 })
     return net.fetch(pathToFileURL(full).toString())
   })
 
@@ -223,7 +225,7 @@ app.whenReady().then(async () => {
   onUsage((usage) => broadcast({ type: 'usage', usage }))
   registerIpc()
   setAfterCall((channel) => {
-    if (/^(cards|learn|decks)\./.test(channel)) updateBadge()
+    if (/^(cards|learn|decks|courses)\./.test(channel)) updateBadge()
     if (channel === 'settings.set') nativeTheme.themeSource = repo.getSetting<'system' | 'light' | 'dark'>('ui.theme', 'system')
   })
   buildMenu(sendMenu)

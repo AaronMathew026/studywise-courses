@@ -15,7 +15,10 @@ export const TASKS = [
   'note_shorten',
   'note_fix_formatting',
   'note_expand',
-  'custom_action'
+  'custom_action',
+  'course_outline',
+  'course_topic',
+  'course_mark'
 ] as const
 export type TaskId = (typeof TASKS)[number]
 
@@ -184,6 +187,33 @@ export const TASK_INFO: Record<TaskId, TaskInfo> = {
     modes: ['markdown', 'json'],
     variables: [...CARD_VARS, 'question', 'expected_answer', 'user_answer', 'source_text'],
     streams: true,
+    long: false
+  },
+  course_outline: {
+    id: 'course_outline',
+    label: 'Course: plan topics',
+    defaultModel: 'opus',
+    modes: ['json'],
+    variables: ['module', 'level', 'files', 'source_text', 'part_info', 'instructions'],
+    streams: false,
+    long: true
+  },
+  course_topic: {
+    id: 'course_topic',
+    label: 'Course: write a topic',
+    defaultModel: 'opus',
+    modes: ['json'],
+    variables: ['module', 'level', 'outline', 'topic_id', 'topic_title', 'source_text', 'part_info', 'instructions'],
+    streams: false,
+    long: true
+  },
+  course_mark: {
+    id: 'course_mark',
+    label: 'Course: mark an explain answer',
+    defaultModel: 'sonnet',
+    modes: ['json'],
+    variables: ['module', 'level', 'question', 'model', 'points', 'answer'],
+    streams: false,
     long: false
   }
 }

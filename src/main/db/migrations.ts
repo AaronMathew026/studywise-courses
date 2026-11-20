@@ -192,6 +192,51 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE review_state ADD COLUMN difficulty REAL NOT NULL DEFAULT 0.6;
   ALTER TABLE review_state ADD COLUMN sr_state INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE review_state ADD COLUMN good_count INTEGER NOT NULL DEFAULT 0;
+  `,
+  /* 3: courses, split into weeks */ `
+  CREATE TABLE courses (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    module TEXT NOT NULL DEFAULT '',
+    level TEXT NOT NULL DEFAULT '',
+    deck_id TEXT REFERENCES decks(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE weeks (
+    id TEXT PRIMARY KEY,
+    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'empty',
+    error TEXT,
+    outline TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX weeks_course ON weeks(course_id, position);
+  CREATE TABLE course_files (
+    id TEXT PRIMARY KEY,
+    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    week_id TEXT NOT NULL REFERENCES weeks(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    pages INTEGER,
+    position INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE topics (
+    id TEXT PRIMARY KEY,
+    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    week_id TEXT NOT NULL REFERENCES weeks(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    plan TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'planned',
+    error TEXT,
+    content TEXT,
+    progress TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX topics_week ON topics(week_id, position);
   `
 ]
 
