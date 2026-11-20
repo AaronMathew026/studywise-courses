@@ -158,12 +158,19 @@ export async function generateNotes(input: GenerateNotesInput, ctx: JobContext):
                 .slice(-15)
                 .join(' | ')}`
             : ''
+        // One end-of-note summary for the whole note, not one per part.
+        const ending =
+          chunks.length > 1
+            ? i < chunks.length - 1
+              ? 'More parts follow, so leave out any end-of-note summary for now.'
+              : 'This is the last part. If my notes style ends with a summary, it covers the whole note, including the earlier parts listed above.'
+            : ''
         if (i > 0) push('\n\n')
         let got = ''
         const r = await runAI<string>({
           task: 'generate_notes',
           presetId: preset.id,
-          vars: { ...baseVars, source_text: c.text ?? '', part_info: [c.partInfo, cont].filter(Boolean).join('\n') },
+          vars: { ...baseVars, source_text: c.text ?? '', part_info: [c.partInfo, cont, ending].filter(Boolean).join('\n') },
           files: c.file ? [c.file] : undefined,
           deckId: input.deckId,
           signal: ctx.signal,
