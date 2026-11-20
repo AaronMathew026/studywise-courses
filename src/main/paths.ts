@@ -11,6 +11,8 @@ function build(root: string) {
     courses: join(root, 'courses'),
     cache: join(root, 'cache'),
     logs: join(root, 'logs'),
+    backups: join(root, 'backups'),
+    lastVersion: join(root, 'last-version'),
     windowState: join(root, 'window-state.json')
   }
 }
