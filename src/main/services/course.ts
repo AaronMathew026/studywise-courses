@@ -583,6 +583,23 @@ function mapFigure(fig: AiTopic['sections'][number]['figure'], attached: Attache
 }
 
 /** A topic's recall cards, in whichever of the course's decks they are. */
+/**
+ * Rate one of a topic's section flashcards (1 again … 4 easy), as in flashcard
+ * review. Topics written before section cards carried ids are matched by front.
+ */
+export function rateTopicCard(topicId: string, front: string, rating: 1 | 2 | 3 | 4, cardId?: string): { cardId: string | null } {
+  let id = cardId ?? null
+  if (!id) {
+    const ids = topicCardIds(getTopic(topicId).course_id, topicId)
+    const row = ids.length
+      ? (getDb().prepare(`SELECT id FROM cards WHERE id IN (${ids.map(() => '?').join(',')}) AND trim(front) = ?`).get(...ids, front.trim()) as { id: string } | undefined)
+      : undefined
+    id = row?.id ?? null
+  }
+  if (id) repo.applyReview(id, rating, 'learn')
+  return { cardId: id }
+}
+
 function topicCardIds(courseId: string, topicId: string): string[] {
   const ids = courseDeckIds(courseId)
   if (!ids.length) return []
@@ -651,6 +668,9 @@ export async function writeTopic(topicId: string, ctx: JobContext, instructions 
         .filter((c) => c.front.trim() && c.back.trim())
         .map((c) => ({ deck_id: deckId, format: 'question_answer' as const, front: c.front.trim(), back: c.back.trim(), tags: [content.title], source: { type: 'topic' as const, ref: topicId, section: content.title } }))
     )
+    // Section flashcards point at their deck cards, so rating one feeds spaced repetition.
+    const idByFront = new Map(cards.map((c) => [c.front, c.id]))
+    for (const s of content.sections) for (const c of s.cards ?? []) c.id = idByFront.get(c.front)
     setTopic(topicId, { status: 'ready', error: null, content: JSON.stringify(content), progress: JSON.stringify(emptyProgress()) })
     touchCourse(course.id)
 

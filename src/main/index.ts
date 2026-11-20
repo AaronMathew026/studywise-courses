@@ -8,10 +8,12 @@ import { openDb } from './db'
 import { seedPresets } from './ai/presets'
 import { aiQueue } from './ai'
 import { detectClaude, setOverridePath } from './ai/claudePath'
-import { registerIpc, broadcast, setAfterCall } from './ipc'
+import { registerIpc, broadcast, setAfterCall, refreshPlanUsage } from './ipc'
 import { buildMenu } from './menu'
 import { loadWindowState, trackWindowState } from './windowState'
-import { onJobEvent, runningJobCount } from './jobs'
+import { onJobEvent, runningJobCount, setUsageProbe } from './jobs'
+import { activeProvider } from './ai/models'
+import { isMock } from './ai'
 import { startUpdateChecks } from './updater'
 import * as repo from './db/repo'
 import { SUPPORTED_SOURCE_EXT } from './files'
@@ -273,6 +275,12 @@ app.whenReady().then(async () => {
   createWindow()
   updateBadge()
   startUpdateChecks((status) => broadcast({ type: 'update', status }))
+  // Jobs measure how much of the 5-hour limit they used (Claude only).
+  setUsageProbe({
+    enabled: () => activeProvider() === 'claude' && !isMock(),
+    onReading: (fn) => onUsage((u) => u.fiveHour && fn(u.fiveHour.utilization)),
+    refresh: async () => (await refreshPlanUsage())?.fiveHour?.utilization ?? null
+  })
   setInterval(updateBadge, 60_000)
 
   // Find claude on the login-shell PATH (Finder-launched apps don't get it).

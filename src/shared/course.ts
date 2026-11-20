@@ -92,7 +92,7 @@ export interface TopicSection {
   notes: string
   figure: Figure | null
   /** Flashcards for what this section teaches, shown after its notes and before its questions. Missing on topics written before this. */
-  cards?: { front: string; back: string }[]
+  cards?: { front: string; back: string; /** The deck card it was saved as, for rating it. */ id?: string }[]
   questions: CourseQuestion[]
 }
 export interface TopicContent {

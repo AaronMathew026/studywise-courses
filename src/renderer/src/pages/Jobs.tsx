@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Square, Eye, Trash2, Loader2, CheckCircle2, XCircle, Ban, FileText, Layers } from 'lucide-react'
-import type { JobInfo } from '@shared/types'
+import { planUsageText, type JobInfo } from '@shared/types'
 import { useStore } from '../lib/store'
 import { api, onEvent } from '../lib/api'
 import { Shell, PageTitle } from '../components/Shell'
@@ -60,6 +60,12 @@ export function Jobs({ embedded = false }: { embedded?: boolean }) {
                   <div className="truncate font-semibold">{j.title}</div>
                   {(j.error || !(j.status === 'running' && j.live)) && <div className="truncate text-[0.88rem] text-muted">{j.error ?? j.progress}</div>}
                 </div>
+                {j.planUsage?.measuring && j.status !== 'running' && <Pill>Measuring usage…</Pill>}
+                {planUsageText(j.planUsage, true) && (
+                  <Pill tone="accent">
+                    <span title={planUsageText(j.planUsage) ?? ''}>{planUsageText(j.planUsage, true)}</span>
+                  </Pill>
+                )}
                 <Pill>{elapsed(j)}</Pill>
                 {j.status === 'running' && (
                   <Button size="sm" variant="danger" onClick={() => api.jobs.cancel({ id: j.id })}>

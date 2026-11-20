@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { SlidersHorizontal, Sparkles, Play, RotateCcw, CheckCircle2, AlertTriangle, FileText, Layers, MoreHorizontal, Pencil, Trash2, Upload, NotebookPen, RefreshCw, Clock, Plus, X, ClipboardCheck } from 'lucide-react'
 import type { CourseFull, Topic, WeekFull } from '@shared/course'
-import type { JobInfo } from '@shared/types'
+import { planUsageText, type JobInfo } from '@shared/types'
 import { useStore, toast } from '../lib/store'
 import { api, errorText } from '../lib/api'
 import { askText, confirmDialog } from '../lib/dialogs'
@@ -338,6 +338,9 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
   const go = useStore((s) => s.go)
   const jobs = useStore((s) => s.jobs)
   const job = running(jobs, 'course_topic', 'topicId', t.id)
+  // The last write of this topic since the app started, for its share of the 5-hour limit.
+  const lastWrite = jobs.find((j) => j.kind === 'course_topic' && j.status === 'done' && j.meta?.topicId === t.id)
+  const used = planUsageText(lastWrite?.planUsage, true)
   const writing = t.status === 'writing' || !!job
   const p = t.progress
   const sections = t.content?.sections.length ?? t.plan.sections.length
@@ -363,6 +366,12 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
         {t.plan.minutes > 0 && (
           <span className="hidden items-center gap-1 sm:flex">
             <Clock className="size-3.5" /> {t.plan.minutes} min
+          </span>
+        )}
+        {!job && lastWrite?.planUsage?.measuring && <span className="text-[0.8rem]">Measuring usage…</span>}
+        {!job && used && (
+          <span className="hidden text-[0.8rem] sm:inline" title={`Writing this topic used ${planUsageText(lastWrite?.planUsage)}`}>
+            Used {used}
           </span>
         )}
         {p.checkTotal ? (

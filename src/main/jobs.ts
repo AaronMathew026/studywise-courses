@@ -16,6 +16,23 @@ export interface JobContext {
   live?: (patch: Partial<JobLive> & { percent?: number | null }) => void
 }
 
+/**
+ * How jobs measure their share of the plan's 5-hour limit: the first reading
+ * during the job is the "before", and a fresh reading once it finishes is the
+ * "after". Set at startup; without it jobs don't measure anything.
+ */
+export interface UsageProbe {
+  enabled: () => boolean
+  /** Calls back with each 5-hour utilization reading (0–1) Claude Code reports. */
+  onReading: (fn: (fiveHour: number) => void) => () => void
+  /** A fresh 5-hour reading, or null if there isn't one. */
+  refresh: () => Promise<number | null>
+}
+let probe: UsageProbe | null = null
+export function setUsageProbe(p: UsageProbe | null): void {
+  probe = p
+}
+
 const emptyLive = (): JobLive => ({ stage: '', log: [], thinkingTokens: 0, thinking: false, preview: null })
 
 type Listener = (ev: { type: 'update'; job: JobInfo } | { type: 'delta'; jobId: string; text: string }) => void
@@ -50,6 +67,16 @@ export function startJob<T>(kind: JobInfo['kind'], title: string, run: (ctx: Job
     percent: null,
     live: null,
     controller
+  }
+  let stopWatching: (() => void) | null = null
+  if (probe?.enabled()) {
+    const others = [...jobs.values()].filter((o) => o.status === 'running')
+    job.planUsage = { before: null, used: null, shared: others.length > 0, measuring: true }
+    // A job starting now overlaps the running ones too.
+    for (const o of others) if (o.planUsage) o.planUsage.shared = true
+    stopWatching = probe.onReading((v) => {
+      if (job.planUsage && job.planUsage.before === null) job.planUsage.before = v
+    })
   }
   jobs.set(job.id, job)
   emit({ type: 'update', job: publicInfo(job) })
@@ -99,9 +126,22 @@ export function startJob<T>(kind: JobInfo['kind'], title: string, run: (ctx: Job
     })
     .finally(() => {
       job.finishedAt = new Date().toISOString()
+      stopWatching?.()
       emit({ type: 'update', job: publicInfo(job) })
+      if (job.planUsage) void measureUsage(job)
     })
   return publicInfo(job)
+}
+
+async function measureUsage(job: JobInfo): Promise<void> {
+  const pu = job.planUsage!
+  if (pu.before !== null && probe) {
+    const after = await probe.refresh().catch(() => null)
+    // Lower than before means the 5-hour window reset during the job: unknown.
+    pu.used = after === null || after < pu.before ? null : Math.round((after - pu.before) * 100) / 100
+  }
+  pu.measuring = false
+  emit({ type: 'update', job: publicInfo(job) })
 }
 
 export function cancelJob(id: string): void {
