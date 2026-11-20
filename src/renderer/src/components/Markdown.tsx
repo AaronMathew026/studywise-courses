@@ -72,6 +72,13 @@ export const Markdown = memo(function Markdown({ children, className, streaming 
                 {kids}
               </a>
             )
+          },
+          table({ children: kids }) {
+            return (
+              <div className="table-wrap">
+                <table>{kids}</table>
+              </div>
+            )
           }
         }}
       >

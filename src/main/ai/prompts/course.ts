@@ -23,6 +23,7 @@ This step only plans the topics. Don't write any lessons yet.
 - Topics follow the order the course teaches them. If one idea is spread over several lectures, it's still one topic.
 - If a lecture covers three separate ideas, that's three topics. If two lectures say the same thing, that's one topic.
 - Leave out admin: deadlines, coursework logistics, announcements, "can everyone hear me".
+- Leave out anything the material marks as not examinable: parts the slides or the lecturer call non-examinable, not assessed, optional, extra reading, "for interest only" or "won't be on the exam". Don't plan topics or sections for it, and don't include its pages in "where". If you're not sure, keep it.
 
 == READING THE SOURCES ==
 - Transcripts are messy. Skip filler, false starts and tangents, but keep the lecturer's own examples and stories. Those are often the best bits.
@@ -54,7 +55,7 @@ This step only plans the topics. Don't write any lessons yet.
 
 {{outline}}
 
-Write topic {{topic_id}} ("{{topic_title}}"). Only teach what belongs to that topic; the other topics get their own lessons. Use the sections the outline lists for this topic, in that order. You can split one if it's too long for a screen.
+Write topic {{topic_id}} ("{{topic_title}}"). Only teach what belongs to that topic; the other topics get their own lessons. Skip anything in the sources marked as not examinable (non-examinable, not assessed, optional, extra reading, "for interest only", "won't be on the exam"): don't teach it, test it or make cards from it. Use the sections the outline lists for this topic, in that order. You can split one if it's too long for a screen.
 
 == HOW IT WORKS ==
 The topic is a run of short sections. Each section is one screen of notes, followed straight away by 2–4 quick questions on what I just read. A mixed check comes at the end. So it goes: read a bit, answer a bit, read a bit, answer a bit.
