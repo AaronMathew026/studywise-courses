@@ -5,7 +5,7 @@ import { useStore, toast } from '../lib/store'
 import { api, streamCall, errorText } from '../lib/api'
 import { useCommands } from '../lib/commands'
 import { Markdown } from './Markdown'
-import { Button, Dots, Textarea, cx, Kbd } from './ui'
+import { Button, Dots, Textarea, cx, Kbd, usePresence } from './ui'
 
 export interface ExplainCtx {
   cardId?: string | null
@@ -42,6 +42,15 @@ const QUICK = [
 
 export function ExplainPanel() {
   const open = useStore((s) => s.explain)
+  const { mounted, closing } = usePresence(!!open, 200)
+  // Keep showing the last explanation while the panel slides away.
+  const last = useRef(open)
+  if (open) last.current = open
+  if (!mounted || !last.current) return null
+  return <Panel open={last.current} closing={closing} />
+}
+
+function Panel({ open, closing }: { open: ExplainOpen; closing: boolean }) {
   const close = () => useStore.getState().openExplain(null)
   const openGenCards = useStore((s) => s.openGenCards)
   const [msgs, setMsgs] = useState<Msg[]>([])
@@ -151,7 +160,7 @@ export function ExplainPanel() {
   }
 
   useCommands(
-    open
+    !closing
       ? {
           'ai.simpler': () => !busy && runMode('simpler', 'Simpler'),
           'ai.deeper': () => !busy && runMode('deeper', 'Go deeper'),
@@ -162,12 +171,11 @@ export function ExplainPanel() {
           'ai.saveExplanation': open.ctx.cardId ? save : null
         }
       : {},
-    [open, busy, lastText]
+    [open, closing, busy, lastText]
   )
 
-  if (!open) return null
   return (
-    <aside className="slide-in-right fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-line bg-bg shadow-2xl sm:w-[460px] sm:rounded-l-2xl">
+    <aside className={cx('fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-line bg-bg shadow-2xl sm:w-[460px] sm:rounded-l-2xl', closing ? 'slide-out-right pointer-events-none' : 'slide-in-right')}>
       <div className="drag flex items-center justify-between gap-2 px-5 pt-5 pb-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-[0.75rem] font-semibold text-accent">

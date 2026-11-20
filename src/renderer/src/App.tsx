@@ -14,9 +14,9 @@ import { GooNav } from './components/GooNav'
 import { CommandPalette } from './components/CommandPalette'
 import { ShortcutSheet } from './components/ShortcutSheet'
 import { ExplainPanel } from './components/ExplainPanel'
-import { GenerateCardsModal, CardPreviewModal, jobDeck } from './components/GenerateCards'
+import { GenerateCardsModal, CardPreviewModal, jobDeck, jobToast } from './components/GenerateCards'
 import { GenerateNotesModal, followNoteJobs } from './components/GenerateNotes'
-import { Button, Spinner, cx } from './components/ui'
+import { Button, Spinner, cx, useModalCount } from './components/ui'
 import { Home } from './pages/Home'
 import { Onboarding } from './components/Onboarding'
 import { Decks } from './pages/Decks'
@@ -114,6 +114,10 @@ export function App() {
         if (ev.type === 'job') {
           const j = ev.job
           st.upsertJob(j)
+          if (j.status !== 'running' && jobToast.has(j.id)) {
+            st.dismissToast(jobToast.get(j.id)!)
+            jobToast.delete(j.id)
+          }
           if (j.kind === 'generate_notes' && followNoteJobs.has(j.id) && typeof j.meta?.noteId === 'string') {
             followNoteJobs.delete(j.id)
             st.go({ name: 'notes', id: j.meta.noteId })
@@ -608,14 +612,23 @@ function DropChooser() {
 function Toasts() {
   const toasts = useStore((s) => s.toasts)
   const dismiss = useStore((s) => s.dismissToast)
+  // With a dialog open, its buttons are at the bottom: show toasts at the top instead.
+  const top = useModalCount((s) => s.n > 0)
   return (
-    <div className="pointer-events-none fixed right-4 bottom-4 left-4 z-[80] flex flex-col items-center gap-2 sm:left-auto sm:items-end">
+    <div
+      className={cx(
+        'pointer-events-none fixed right-4 left-4 z-[80] flex flex-col items-center gap-2',
+        top ? 'top-[calc(var(--nav-h)+12px)]' : 'bottom-4 sm:left-auto sm:items-end'
+      )}
+    >
       {toasts.map((t) => (
         <div
           key={t.id}
+          role={t.kind === 'bad' ? 'alert' : 'status'}
           className={cx(
-            'pop-in pointer-events-auto flex max-w-[440px] items-center gap-3 rounded-full py-2.5 pr-2.5 pl-5 text-[0.92rem] font-medium shadow-xl',
-            t.kind === 'bad' ? 'bg-bad text-white' : t.kind === 'good' ? 'bg-ink text-bg' : 'bg-ink text-bg'
+            'pointer-events-auto flex max-w-[440px] items-center gap-3 rounded-full py-2.5 pr-2.5 pl-5 text-[0.92rem] font-medium shadow-xl',
+            t.leaving ? 'toast-out' : top ? 'toast-in-top' : 'toast-in',
+            t.kind === 'bad' ? 'bg-bad text-white' : 'bg-ink text-bg'
           )}
         >
           <span className="min-w-0 flex-1">{t.text}</span>
@@ -625,12 +638,12 @@ function Toasts() {
                 t.action!.run()
                 dismiss(t.id)
               }}
-              className="rounded-full bg-white/15 px-3 py-1 font-semibold hover:bg-white/25"
+              className="shrink-0 rounded-full bg-white/15 px-3 py-1 font-semibold hover:bg-white/25"
             >
               {t.action.label}
             </button>
           )}
-          <button onClick={() => dismiss(t.id)} className="grid size-7 place-items-center rounded-full opacity-70 hover:opacity-100" aria-label="Dismiss">
+          <button onClick={() => dismiss(t.id)} className="grid size-7 shrink-0 place-items-center rounded-full opacity-70 hover:opacity-100" aria-label="Dismiss">
             <X className="size-4" />
           </button>
         </div>

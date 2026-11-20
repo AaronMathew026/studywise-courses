@@ -326,6 +326,88 @@ button {
 .fade-in {
   animation: fade-in 260ms ease both;
 }
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+.fade-out {
+  animation: fade-out 180ms ease both;
+}
+/* Dialogs: rise in with a little scale, sink out faster than they came. */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+@keyframes modal-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+.modal-in {
+  animation: modal-in 320ms var(--ease) both;
+}
+.modal-out {
+  animation: modal-out 170ms ease-in both;
+}
+/* Dropdown menus grow from the corner they hang off. */
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+}
+@keyframes menu-out {
+  to {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.97);
+  }
+}
+.menu-in {
+  animation: menu-in 200ms var(--ease) both;
+}
+.menu-out {
+  animation: menu-out 130ms ease-in both;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+}
+@keyframes toast-in-top {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.96);
+  }
+}
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+.toast-in {
+  animation: toast-in 380ms var(--ease) both;
+}
+.toast-in-top {
+  animation: toast-in-top 380ms var(--ease) both;
+}
+.toast-out {
+  animation: toast-out 200ms ease-in both;
+}
+@keyframes slide-out-right {
+  to {
+    transform: translateX(32px);
+    opacity: 0;
+  }
+}
+.slide-out-right {
+  animation: slide-out-right 200ms ease-in both;
+}
 @keyframes slide-in-right {
   from {
     transform: translateX(24px);
@@ -412,6 +494,7 @@ button {
   *::before,
   *::after {
     animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
     transition-duration: 1ms !important;
   }
 }
