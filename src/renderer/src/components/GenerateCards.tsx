@@ -28,6 +28,8 @@ export interface PreviewCardT {
 
 // Remember which deck a card job should save into.
 export const jobDeck = new Map<string, string | null>()
+// The "generating…" toast for a card job, cleared once the preview opens.
+export const jobToast = new Map<string, number>()
 
 export function GenerateCardsModal() {
   const prefill = useStore((s) => s.genCards)
@@ -78,7 +80,7 @@ export function GenerateCardsModal() {
         count: auto ? null : count
       })
       jobDeck.set(job.id, deckId || null)
-      toast('Generating flashcards… the preview opens when they’re ready', 'info', { label: 'Jobs', run: () => useStore.getState().go({ name: 'jobs' }) })
+      jobToast.set(job.id, toast('Generating flashcards… the preview opens when they’re ready', 'info', { label: 'Jobs', run: () => useStore.getState().go({ name: 'jobs' }) }))
       close()
     } catch (e) {
       toast(errorText(e), 'bad')

@@ -22,6 +22,8 @@ export interface Toast {
   text: string
   kind: 'info' | 'good' | 'bad'
   action?: { label: string; run: () => void }
+  /** Set while it animates out. */
+  leaving?: boolean
 }
 
 export interface GeneratorPrefill {
@@ -51,7 +53,7 @@ interface State {
   upsertJob: (j: JobInfo) => void
 
   toasts: Toast[]
-  toast: (text: string, kind?: Toast['kind'], action?: Toast['action']) => void
+  toast: (text: string, kind?: Toast['kind'], action?: Toast['action']) => number
   dismissToast: (id: number) => void
 
   explain: ExplainOpen | null
@@ -124,8 +126,14 @@ export const useStore = create<State>((set, get) => ({
     const id = ++toastSeq
     set({ toasts: [...get().toasts, { id, text, kind, action }] })
     setTimeout(() => get().dismissToast(id), action ? 7000 : 4200)
+    return id
   },
-  dismissToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
+  dismissToast: (id) => {
+    const t = get().toasts.find((x) => x.id === id)
+    if (!t || t.leaving) return
+    set({ toasts: get().toasts.map((x) => (x.id === id ? { ...x, leaving: true } : x)) })
+    setTimeout(() => set({ toasts: get().toasts.filter((x) => x.id !== id) }), 200)
+  },
 
   explain: null,
   openExplain: (e) => set({ explain: e }),
@@ -154,4 +162,4 @@ export const useStore = create<State>((set, get) => ({
   bump: () => set({ version: get().version + 1 })
 }))
 
-export const toast = (text: string, kind?: Toast['kind'], action?: Toast['action']) => useStore.getState().toast(text, kind, action)
+export const toast = (text: string, kind?: Toast['kind'], action?: Toast['action']): number => useStore.getState().toast(text, kind, action)
