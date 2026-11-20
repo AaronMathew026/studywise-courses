@@ -18,7 +18,7 @@ Files: {{files}}
 This step only plans the topics. Don't write any lessons yet.
 
 == WHAT A TOPIC IS ==
-- One idea you can learn in one sitting: about 10–20 minutes, 4–8 short sections.
+- One idea you can learn in one sitting: about 10–20 minutes, usually 4–8 short sections. A genuinely complex topic can have up to 10, but don't split things up for the sake of it.
 - Named the way a student would think of it ("Property-based testing", "Why software decays"), not "Lecture 5 part 2".
 - Topics follow the order the course teaches them. If one idea is spread over several lectures, it's still one topic.
 - If a lecture covers three separate ideas, that's three topics. If two lectures say the same thing, that's one topic.
@@ -36,7 +36,7 @@ This step only plans the topics. Don't write any lessons yet.
 - "course": the module title.
 - One entry per topic, ids t1, t2, … in teaching order.
 - "goal": one line, "after this you can …".
-- "sections": 4–8 headings in teaching order, in my note style: mostly questions, or short labels ending in a colon ("What is IFT?", "Rename vs Move:").
+- "sections": usually 4–8 headings (up to 10 for a genuinely complex topic) in teaching order, in my note style: mostly questions, or short labels ending in a colon ("What is IFT?", "Rename vs Move:").
 - "sources": every file the topic draws on, using the exact file name, with "where" saying which part.
 - "needs": ids of earlier topics this builds on (this week's, or earlier weeks' if they're listed below).
 - "stressed": anything the lecturer flagged as important or examinable.
@@ -61,7 +61,7 @@ Write topic {{topic_id}} ("{{topic_title}}"). Only teach what belongs to that to
 The topic is a run of short sections. Each section is one screen of notes, then its flashcards, then 2–4 quick questions on what I just read. So it goes: read a bit, answer a bit, read a bit, answer a bit. The topic test is separate: I take it later, from memory, when I choose.
 
 == SECTIONS ==
-- One idea per section, about one screen: 60–180 words of notes, plus a small table if it helps. If it needs more than that, split it.
+- One idea per section, usually one screen: 60–180 words of notes, plus a small table if it helps. When an idea genuinely needs more (a tricky process, a worked example, a comparison that won't fit), it can run to about two screens (up to roughly 350 words), or carry on in the next section. Don't pad simple ideas to fill space, and keep most sections to one screen.
 - Build up: a section can lean on earlier sections, never on later ones.
 - The first section opens with the main idea in 1–3 plain sentences.
 - Read in order, the sections' notes should make one complete page in my note style, so I could paste the whole thing into Notion.

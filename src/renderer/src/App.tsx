@@ -1,6 +1,11 @@
 import { useEffect, useState, lazy, Suspense } from 'react'
 import { AlertTriangle, X, FileUp, NotebookPen, Layers, Terminal, GraduationCap, Download } from 'lucide-react'
 import type { UpdateStatus } from '@shared/update'
+import { planUsageText } from '@shared/types'
+
+/** Jobs already announced as done, and those whose plan usage was shown. */
+const announced = new Set<string>()
+const usageShown = new Set<string>()
 import { useStore, toast, type Route } from './lib/store'
 import { api, onEvent, errorText } from './lib/api'
 import { startCommandDispatch, useCommands, runCommand } from './lib/commands'
@@ -118,13 +123,21 @@ export function App() {
             st.openPreview({ cards: r.cards, deckId: jobDeck.get(j.id) ?? null, jobId: j.id, presetName: r.presetName })
             jobDeck.delete(j.id)
           }
-          if (j.status === 'done' && j.kind === 'generate_notes') {
+          // A finished job gets more updates (its usage is measured afterwards); announce it once.
+          const first = j.status === 'done' && !announced.has(j.id)
+          if (first) announced.add(j.id)
+          if (first && j.kind === 'generate_notes') {
             st.bump()
             toast(`${j.title.replace(/^Notes: /, '')}: notes ready`, 'good')
           }
           if (j.kind === 'course_outline' || j.kind === 'course_topic') {
-            st.bump()
-            if (j.status === 'done') toast(j.kind === 'course_outline' ? `${j.title.replace(/^Plan: /, '')}: topics planned` : `${j.title.replace(/^Topic: /, '')} is ready`, 'good')
+            if (j.status !== 'done' || first) st.bump()
+            if (first) toast(j.kind === 'course_outline' ? `${j.title.replace(/^Plan: /, '')}: topics planned` : `${j.title.replace(/^Topic: /, '')} is ready`, 'good')
+          }
+          const used = j.status === 'done' && !usageShown.has(j.id) ? planUsageText(j.planUsage) : null
+          if (used) {
+            usageShown.add(j.id)
+            toast(`${j.title.replace(/^(Topic|Plan|Notes|Flashcards): /, '')} used ${used}`, 'info')
           }
           if (j.status === 'error') toast(`${j.title}: ${j.error}`, 'bad', { label: 'Jobs', run: () => st.go({ name: 'jobs' }) })
         }

@@ -402,6 +402,9 @@ export const handlers = {
       return topics.map((t) => startJob('course_topic', `Topic: ${t.plan.title}`, (ctx) => course.writeTopic(t.id, ctx, i.instructions)))
     }),
     topic: h(z.object({ id }), (i) => course.getTopic(i.id)),
+    rateCard: h(z.object({ topicId: id, front: z.string().min(1), cardId: z.string().optional(), rating: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }), (i) =>
+      course.rateTopicCard(i.topicId, i.front, i.rating, i.cardId)
+    ),
     figure: h(z.object({ fileId: id, page: z.number().int().min(1) }), (i) => course.figureUrl(i.fileId, i.page)),
     progress: h(
       z.object({
@@ -575,11 +578,7 @@ export const handlers = {
     queue: h(none, () => ({ running: aiQueue.running, waiting: aiQueue.waiting })),
     limits: h(none, () => getUsage()),
     /** One tiny Haiku call, just to get fresh plan-usage numbers. */
-    refreshLimits: h(none, async () => {
-      if (models.activeProvider() !== 'claude') return getUsage()
-      await runAI({ task: 'hint', vars: { front: 'ping', back: 'pong', question: 'ping', type: 'free_answer', previous_hints: '(none)' }, model: { model: 'haiku', effort: null } })
-      return getUsage()
-    })
+    refreshLimits: h(none, () => refreshPlanUsage())
   },
 
   io: {
@@ -691,6 +690,16 @@ export function registerIpc(): void {
       })
     }
   }
+}
+
+let pinging: Promise<ReturnType<typeof getUsage>> | null = null
+/** One tiny Haiku call, just to get fresh plan-usage numbers. Calls made while one is running share it. */
+export function refreshPlanUsage(): Promise<ReturnType<typeof getUsage>> {
+  if (models.activeProvider() !== 'claude') return Promise.resolve(getUsage())
+  pinging ??= runAI({ task: 'hint', vars: { front: 'ping', back: 'pong', question: 'ping', type: 'free_answer', previous_hints: '(none)' }, model: { model: 'haiku', effort: null } })
+    .then(() => getUsage())
+    .finally(() => (pinging = null))
+  return pinging
 }
 
 export function broadcast(payload: unknown): void {

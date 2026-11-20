@@ -235,6 +235,19 @@ export interface JobInfo {
   /** 0–1 while running, when the job can tell; null otherwise. */
   percent: number | null
   live: JobLive | null
+  /** How much of the Claude plan's 5-hour limit the job used. Missing when it can't be measured (Ollama, no AI calls). */
+  planUsage?: JobPlanUsage
+}
+
+export interface JobPlanUsage {
+  /** 5-hour utilization (0–1) just before the job's first AI call. */
+  before: number | null
+  /** Percentage points of the 5-hour limit used, 0–1 (0.04 = 4%). Null until measured, or if it couldn't be. */
+  used: number | null
+  /** Other jobs ran at the same time, so `used` includes theirs too. */
+  shared: boolean
+  /** Waiting for the fresh reading after the job. */
+  measuring: boolean
 }
 
 /** What Claude is doing right now, for the progress panel. */
@@ -269,4 +282,12 @@ export interface UsageLimits {
   sevenDay: UsageWindow | null
   status: string
   updatedAt: string
+}
+
+/** "about 4% of your 5-hour limit", or null when there's nothing to show yet. Readings are whole percents. */
+export function planUsageText(pu: JobPlanUsage | undefined, short = false): string | null {
+  if (!pu || pu.measuring || pu.used === null) return null
+  const pct = Math.round(pu.used * 100)
+  const amount = pct < 1 ? 'under 1%' : `about ${pct}%`
+  return short ? `${amount} of 5h limit` : `${amount} of your 5-hour limit${pu.shared ? ' (shared with other jobs running at the same time)' : ''}`
 }

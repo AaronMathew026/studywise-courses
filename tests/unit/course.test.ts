@@ -175,6 +175,12 @@ describe('course service (mock AI)', () => {
       ['What is the work function?', 'What is the threshold frequency?'],
       ['Does brighter light give faster photoelectrons?']
     ])
+    // They point at their deck cards, and rating one schedules it (by id, or by front for older topics).
+    const sc = t2.content!.sections[1].cards![0]
+    expect(sc.id).toBeTruthy()
+    expect(svc.rateTopicCard(t2.id, sc.front, 1, sc.id).cardId).toBe(sc.id)
+    expect(svc.rateTopicCard(t2.id, `  ${sc.front} `, 3).cardId).toBe(sc.id)
+    expect((await import('../../src/main/db/repo')).getReviewState(sc.id!)).toBeTruthy()
 
     // No recall until another topic has been started.
     await svc.writeTopic(topics[0].id, ctx())

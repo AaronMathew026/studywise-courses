@@ -63,6 +63,7 @@ export const CHANNELS = [
   'courses.plan',
   'courses.write',
   'courses.topic',
+  'courses.rateCard',
   'courses.figure',
   'courses.progress',
   'courses.resetProgress',

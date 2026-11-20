@@ -14,7 +14,7 @@ import {
 import type { Mark } from '@shared/questions'
 import type { Card } from '@shared/types'
 import { useStore, toast } from '../lib/store'
-import { api, errorText } from '../lib/api'
+import { api, errorText, streamCall } from '../lib/api'
 import { Markdown } from '../components/Markdown'
 import { Button, Dots, Kbd, Modal, Pill, Textarea, cx } from '../components/ui'
 import { CourseQuestionView } from '../learn/CourseQuestions'
@@ -290,7 +290,7 @@ export function TopicPage({ id, test = false }: { id: string; test?: boolean }) 
       <div className="mx-auto mt-7 w-full max-w-[860px] flex-1">
         {step.kind === 'notes' && <NotesStep key={at} section={content.sections[step.section]} first={step.section === 0} goal={content.goal} onNext={next} onAsk={() => askAbout(content.sections[step.section])} />}
 
-        {step.kind === 'cards' && <CardsStep key={at} cards={content.sections[step.section].cards ?? []} onNext={next} />}
+        {step.kind === 'cards' && <CardsStep key={at} cards={content.sections[step.section].cards ?? []} topicId={topic.id} onNext={next} />}
 
         {step.kind === 'recall' && <RecallStep key={at} courseId={topic.course_id} topicId={topic.id} onNext={next} />}
 
@@ -507,45 +507,141 @@ function NotesStep({ section, first, goal, onNext, onAsk }: { section: TopicSect
   )
 }
 
-/** The section's key terms as flip cards, so you know them before the questions. Space or ↩ flips, then ↩ moves on. */
-function CardsStep({ cards, onNext }: { cards: { front: string; back: string }[]; onNext: () => void }) {
-  const [i, setI] = useState(0)
+type CardRating = 1 | 2 | 3
+const CARD_RATINGS: { r: CardRating; label: string; tone: string }[] = [
+  { r: 1, label: 'Didn’t know', tone: 'border-bad/40 bg-bad-soft text-bad' },
+  { r: 2, label: 'Sort of', tone: 'border-warn/40 bg-warn-soft text-warn' },
+  { r: 3, label: 'Knew it', tone: 'border-good/40 bg-good-soft text-good' }
+]
+/** A card you don't know comes back at most this many times in one go; spaced repetition takes it from there. */
+const MAX_CARD_TRIES = 4
+
+/**
+ * The section's key terms before its questions. Think of the answer, flip, and
+ * rate yourself. "Didn't know" or "Sort of" opens a page that explains the term
+ * properly (more than the card says), and the card goes to the back of the pile
+ * until you know it. Ratings feed spaced repetition. Keys: Space/↩ flip and
+ * continue, 1–3 rate.
+ */
+function CardsStep({ cards, topicId, onNext }: { cards: { front: string; back: string; id?: string }[]; topicId: string; onNext: () => void }) {
+  // Card indexes still to go; ones you don't know yet go back on the end.
+  const [queue, setQueue] = useState(() => cards.map((_, i) => i))
+  const [tries, setTries] = useState<Record<number, number>>({})
   const [flipped, setFlipped] = useState(false)
-  const card = cards[i]
-  const last = i >= cards.length - 1
-  const advance = () => {
-    if (!flipped) return setFlipped(true)
-    if (last) return onNext()
-    setI(i + 1)
+  const [rated, setRated] = useState<CardRating | null>(null)
+  const [explanation, setExplanation] = useState<string | null>(null)
+  const [explaining, setExplaining] = useState(false)
+  const idx = queue[0]
+  const card = cards[idx]
+  const again = (tries[idx] ?? 0) > 0
+  const done = cards.length - new Set(queue).size
+
+  const advance = (r: CardRating) => {
+    const n = (tries[idx] ?? 0) + 1
+    const rest = queue.slice(1)
+    const next = r !== 3 && n < MAX_CARD_TRIES ? [...rest, idx] : rest
+    if (!next.length) return onNext()
+    setTries({ ...tries, [idx]: n })
+    setQueue(next)
     setFlipped(false)
+    setRated(null)
+    setExplanation(null)
   }
+
+  const explain = async (r: CardRating) => {
+    if (explaining || !card) return
+    setExplaining(true)
+    setExplanation('')
+    try {
+      const ctx = card.id ? { cardId: card.id } : { question: card.front, expectedAnswer: card.back }
+      const request = `${r === 1 ? 'I didn’t know this card at all.' : 'I only partly knew this card.'} Explain it properly, more in depth than the card: what it means in plain everyday words first, then the exact term or definition, why it matters, one small worked example walked through step by step, and the usual mistake people make. End with a one-line way to remember it. Use only what the card and my notes say, Markdown with short sections, and keep it to about one screen.`
+      await streamCall((streamId) => api.explain.run({ ctx, mode: request, explanationId: null, streamId }), setExplanation)
+    } catch (e) {
+      setExplanation(null)
+      toast(errorText(e), 'bad')
+    } finally {
+      setExplaining(false)
+    }
+  }
+
+  const rate = (r: CardRating) => {
+    if (!flipped || rated) return
+    void api.courses.rateCard({ topicId, front: card.front, cardId: card.id, rating: r }).catch(() => {})
+    if (r === 3) return advance(r)
+    setRated(r)
+    void explain(r)
+  }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement
       if (e.metaKey || e.ctrlKey || e.altKey || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || document.querySelector('[data-modal]')) return
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault()
-        advance()
-      }
+        if (!flipped) setFlipped(true)
+        else if (rated && !explaining) advance(rated)
+      } else if (flipped && !rated && ['1', '2', '3'].includes(e.key)) rate(Number(e.key) as CardRating)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
   if (!card) return null
+  const comesBack = (tries[idx] ?? 0) + 1 < MAX_CARD_TRIES
+
+  // Not known yet: a page that explains it properly before the next card.
+  if (rated)
+    return (
+      <div key={`explain-${idx}-${tries[idx] ?? 0}`} className="pop-in flex flex-col gap-5">
+        <div className="flex items-center gap-2 text-[0.85rem] text-muted">
+          <Pill tone="accent">Key terms</Pill>
+          <Pill tone={rated === 1 ? 'bad' : 'warn'}>{rated === 1 ? 'Didn’t know' : 'Sort of'}</Pill>
+        </div>
+        <div className="rounded-xl border border-line bg-surface p-[clamp(18px,3.4vw,36px)]">
+          <div className="mb-2 flex items-center gap-1.5 text-[0.85rem] font-semibold text-accent">
+            <Sparkles className="size-4" /> Let’s go through it properly
+          </div>
+          <Markdown className="mb-4 text-[clamp(1.35rem,2.6vw,1.85rem)] leading-tight font-semibold tracking-tight">{card.front}</Markdown>
+          {explanation ? (
+            <Markdown className="text-[1.05rem] leading-relaxed" streaming={explaining}>
+              {explanation}
+            </Markdown>
+          ) : explanation === '' ? (
+            <div className="flex items-center gap-2 text-muted">
+              Explaining <Dots />
+            </div>
+          ) : (
+            // The explanation failed: fall back to the card's own answer.
+            <Markdown className="text-[1.05rem] leading-relaxed">{card.back}</Markdown>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="primary" size="lg" onClick={() => advance(rated)} disabled={explaining}>
+            Got it, next <ArrowRight className="size-4" /> <Kbd className="ml-1 border-current/30">↩</Kbd>
+          </Button>
+          <span className="text-[0.85rem] text-muted">{comesBack ? 'This card comes back at the end until you know it.' : 'Spaced review will bring this one back soon.'}</span>
+        </div>
+      </div>
+    )
+
   return (
     <div className="pop-in flex flex-col gap-5">
       <div className="flex items-center gap-2 text-[0.85rem] text-muted">
         <Pill tone="accent">Key terms</Pill>
+        {again && (
+          <Pill tone="warn">
+            <RotateCcw className="size-3" /> Again
+          </Pill>
+        )}
         <span>
-          Card {i + 1} of {cards.length}
+          {done} of {cards.length} known
         </span>
       </div>
-      {/* A div, not a button: a focused button would also react to the ↩/Space that the page handles. */}
+      {/* A div, not a button: a focused button would also react to the keys the step handles. */}
       <div
         role="button"
-        onClick={() => setFlipped((f) => !f)}
-        className="flex min-h-[220px] cursor-pointer flex-col items-stretch rounded-xl border border-line bg-surface p-[clamp(18px,3.4vw,36px)] text-left transition-colors hover:border-[color-mix(in_oklab,var(--ink)_22%,transparent)]"
-        title={flipped ? 'Show the front' : 'Show the answer'}
+        onClick={() => !flipped && setFlipped(true)}
+        className={cx('flex min-h-[220px] flex-col items-stretch rounded-xl border border-line bg-surface p-[clamp(18px,3.4vw,36px)] text-left transition-colors', !flipped && 'cursor-pointer hover:border-[color-mix(in_oklab,var(--ink)_22%,transparent)]')}
+        title={flipped ? undefined : 'Show the answer'}
       >
         <Markdown className="text-[clamp(1.2rem,2.4vw,1.6rem)] leading-snug font-semibold">{card.front}</Markdown>
         {flipped ? (
@@ -553,12 +649,26 @@ function CardsStep({ cards, onNext }: { cards: { front: string; back: string }[]
             <Markdown className="text-[1.05rem] leading-relaxed">{card.back}</Markdown>
           </div>
         ) : (
-          <span className="mt-auto pt-6 text-[0.9rem] text-muted">Think of the answer, then tap to check</span>
+          <span className="mt-auto pt-6 text-[0.9rem] text-muted">Say the answer in your head first, then tap to check</span>
         )}
       </div>
-      <Button variant="primary" size="lg" className="self-start" onClick={advance}>
-        {!flipped ? 'Show answer' : last ? 'On to the questions' : 'Next card'} <ArrowRight className="size-4" /> <Kbd className="ml-1 border-current/30">↩</Kbd>
-      </Button>
+
+      {!flipped ? (
+        <Button variant="primary" size="lg" className="self-start" onClick={() => setFlipped(true)}>
+          Show answer <Kbd className="ml-1 border-current/30">↩</Kbd>
+        </Button>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <span className="text-[0.85rem] text-muted">How well did you know it?</span>
+          <div className="grid grid-cols-3 gap-2 max-sm:grid-cols-1">
+            {CARD_RATINGS.map(({ r, label, tone }) => (
+              <button key={r} onClick={() => rate(r)} className={cx('flex items-center justify-center gap-2 rounded-xl border px-4 py-3 font-semibold transition-transform active:scale-[0.98]', tone)}>
+                {label} <Kbd className="border-current/30">{r}</Kbd>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
