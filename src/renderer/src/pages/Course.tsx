@@ -206,14 +206,16 @@ function WeekSection({ week: w, reload, write }: { week: WeekFull; reload: () =>
 
   return (
     <section data-week={w.label}>
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <h2 className="text-[1.2rem] font-semibold tracking-tight">{w.label}</h2>
-        {w.topics.length > 0 && (
-          <span className="text-[0.88rem] text-muted">
-            {w.topics.length} topic{w.topics.length === 1 ? '' : 's'} · {done} done
-          </span>
-        )}
-        <span className="flex-1" />
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex min-w-0 flex-1 items-baseline gap-3">
+          <h2 className="truncate text-[1.2rem] font-semibold tracking-tight">{w.label}</h2>
+          {w.topics.length > 0 && (
+            <span className="shrink-0 text-[0.88rem] text-muted">
+              {w.topics.length} topic{w.topics.length === 1 ? '' : 's'} · {done} done
+            </span>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
         {!planning && w.files.length > 0 && !w.topics.length && w.status !== 'error' && (
           <Button size="sm" variant="primary" onClick={plan}>
             <Sparkles className="size-4" /> Plan topics
@@ -255,6 +257,7 @@ function WeekSection({ week: w, reload, write }: { week: WeekFull; reload: () =>
             </>
           )}
         </Menu>
+        </div>
       </div>
 
       {w.files.length > 0 ? (
@@ -347,11 +350,14 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
   const n = Number(t.key.match(/t(\d+)$/)?.[1] ?? t.position + 1)
   return (
     <li
-      className={cx('flex flex-wrap items-center gap-4 rounded-xl border border-line bg-surface px-5 py-4', t.status === 'ready' && 'cursor-pointer hover:border-[color-mix(in_oklab,var(--ink)_22%,transparent)]')}
+      className={cx(
+        'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line bg-surface px-4 py-3.5 transition-[border-color,box-shadow,transform] duration-300 ease-out-soft sm:gap-x-4 sm:px-5 sm:py-4',
+        t.status === 'ready' && 'cursor-pointer hover:border-[color-mix(in_oklab,var(--ink)_22%,transparent)] hover:shadow-[0_8px_24px_-18px_rgba(0,0,0,0.35)] active:scale-[0.995]'
+      )}
       onClick={() => t.status === 'ready' && go({ name: 'topic', id: t.id })}
     >
-      <div className={cx('grid size-9 shrink-0 place-items-center rounded-full text-[0.9rem] font-semibold', p.done ? 'bg-good text-white' : 'bg-surface-2')}>{p.done ? <CheckCircle2 className="size-5" /> : n}</div>
-      <div className="min-w-0 flex-1">
+      <div className={cx('grid size-8 shrink-0 place-items-center rounded-full text-[0.9rem] font-semibold transition-colors duration-500 sm:size-9', p.done ? 'bg-good text-white' : 'bg-surface-2')}>{p.done ? <CheckCircle2 className="size-5" /> : n}</div>
+      <div className="min-w-[min(12rem,100%)] flex-1">
         <div className="font-semibold">{t.content?.title ?? t.plan.title}</div>
         <div className="truncate text-[0.88rem] text-muted">{t.content?.goal ?? t.plan.goal}</div>
         {writing && !job && (
@@ -362,7 +368,7 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
         {t.status === 'error' && !writing && <div className="mt-1 text-[0.85rem] text-bad">{t.error}</div>}
         {t.status === 'ready' && !p.done && p.section > 0 && <ProgressBar value={p.section / sections} className="mt-2 h-1.5 max-w-[240px]" />}
       </div>
-      <div className="flex items-center gap-2 text-[0.85rem] text-muted" onClick={(e) => e.stopPropagation()}>
+      <div className="ml-auto flex shrink-0 items-center gap-2 text-[0.85rem] text-muted" onClick={(e) => e.stopPropagation()}>
         {t.plan.minutes > 0 && (
           <span className="hidden items-center gap-1 sm:flex">
             <Clock className="size-3.5" /> {t.plan.minutes} min
