@@ -25,10 +25,16 @@ export function GooNav() {
   const jobs = useStore((s) => s.jobs)
   const running = jobs.filter((j) => j.status === 'running').length
   const canGoBack = useStore((s) => s.back.length > 0)
+  const navRef = useRef<HTMLElement>(null)
+  const brandRef = useRef<HTMLDivElement>(null)
   const linksRef = useRef<HTMLDivElement>(null)
+  const toolsRef = useRef<HTMLDivElement>(null)
+  const menuBtnRef = useRef<HTMLButtonElement>(null)
   const blobs = useRef<(HTMLDivElement | null)[]>([])
   const [hovering, setHovering] = useState(false)
   const [open, setOpen] = useState(false)
+  // Where the links go: centred in the window, nudged into the free gap, or folded into the menu.
+  const [fit, setFit] = useState<{ left: number | null; collapsed: boolean }>({ left: null, collapsed: false })
   const activeIdx = LINKS.findIndex((l) => l.match.includes(route.name))
 
   const place = useCallback((el: HTMLElement | null) => {
@@ -49,21 +55,46 @@ export function GooNav() {
     set(blobs.current[2], h * 0.8, h * 0.8, P + y + h * 0.1)
   }, [])
 
-  useLayoutEffect(() => {
-    if (hovering) return
+  const placeActive = useCallback(() => {
     const el = linksRef.current?.querySelectorAll<HTMLElement>(':scope > button')[activeIdx]
     place(el ?? null)
-  }, [activeIdx, hovering, place])
-
-  useEffect(() => {
-    const onResize = () => {
-      if (window.innerWidth >= 900) setOpen(false)
-      const el = linksRef.current?.querySelectorAll<HTMLElement>(':scope > button')[activeIdx]
-      place(el ?? null)
-    }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
   }, [activeIdx, place])
+
+  useLayoutEffect(() => {
+    if (!hovering) placeActive()
+  }, [hovering, placeActive])
+
+  // Lay the links out against what's actually beside them. The usage meter, the
+  // Windows caption buttons and text zoom all change how much room there is, so
+  // a fixed breakpoint either overlaps or collapses too early.
+  useLayoutEffect(() => {
+    const nav = navRef.current
+    const brand = brandRef.current
+    const links = linksRef.current
+    const tools = toolsRef.current
+    if (!nav || !brand || !links || !tools) return
+    const GAP = 16
+    const measure = () => {
+      const box = nav.getBoundingClientRect()
+      const leftEdge = brand.getBoundingClientRect().right - box.left + GAP
+      // The menu button only shows when collapsed; measure as if it weren't there.
+      const menuW = menuBtnRef.current?.offsetWidth ? menuBtnRef.current.offsetWidth + 12 : 0
+      const rightEdge = tools.getBoundingClientRect().left - box.left + menuW - GAP
+      const w = links.offsetWidth
+      const centred = box.width / 2 - w / 2
+      let next: { left: number | null; collapsed: boolean }
+      if (centred >= leftEdge && centred + w <= rightEdge) next = { left: null, collapsed: false }
+      else if (rightEdge - leftEdge >= w) next = { left: Math.round(leftEdge + (rightEdge - leftEdge - w) / 2), collapsed: false }
+      else next = { left: null, collapsed: true }
+      setFit((f) => (f.left === next.left && f.collapsed === next.collapsed ? f : next))
+      if (!next.collapsed) setOpen(false)
+      placeActive()
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    for (const el of [nav, brand, links, tools]) ro.observe(el)
+    return () => ro.disconnect()
+  }, [placeActive])
 
   // Windows convention: Alt+← / Alt+→ go back and forward.
   useEffect(() => {
@@ -89,7 +120,8 @@ export function GooNav() {
 
   return (
     <header className={cx('drag relative z-30 shrink-0 border-b border-line bg-nav backdrop-blur-xl', open && 'is-open')}>
-      <nav className="nav-inset relative flex h-[var(--nav-h)] items-center gap-3 pr-3 sm:pr-4">
+      <nav ref={navRef} className="nav-inset relative flex h-[var(--nav-h)] items-center gap-3 pr-3 sm:pr-4">
+        <div ref={brandRef} className="flex shrink-0 items-center gap-3">
         {/* On Windows the caption buttons are on the right, so the left corner
             (where macOS has its traffic lights) holds the back button. */}
         {!IS_MAC && (
@@ -105,11 +137,16 @@ export function GooNav() {
         )}
         <button onClick={() => navTo({ name: 'home' })} className="no-drag flex items-center gap-2 pr-2">
           <Logo />
-          <span className="hidden text-[0.95rem] font-semibold tracking-[-0.01em] sm:inline">Studywise Courses</span>
+          <span className="hidden text-[0.95rem] font-semibold tracking-[-0.01em] whitespace-nowrap sm:inline">Studywise Courses</span>
         </button>
+        </div>
 
-        <div className="pointer-events-none absolute inset-y-0 left-1/2 hidden -translate-x-1/2 items-center min-[900px]:flex">
-          <div ref={linksRef} className="goo-links no-drag pointer-events-auto" onMouseLeave={() => setHovering(false)}>
+        <div
+          className={cx('pointer-events-none absolute inset-y-0 flex items-center transition-[left,transform] duration-300 ease-out-soft', fit.collapsed && 'invisible')}
+          style={fit.left === null ? { left: '50%', transform: 'translateX(-50%)' } : { left: fit.left, transform: 'none' }}
+          aria-hidden={fit.collapsed || undefined}
+        >
+          <div ref={linksRef} className={cx('goo-links no-drag', !fit.collapsed && 'pointer-events-auto')} onMouseLeave={() => setHovering(false)}>
             <div className="goo-layer" aria-hidden="true">
               {['a', 'b', 'c'].map((k, i) => (
                 <div key={k} ref={(el) => void (blobs.current[i] = el)} className={cx('goo-blob', hovering ? 'is-on' : activeIdx >= 0 && 'is-rest')} data-blob={k} />
@@ -128,6 +165,7 @@ export function GooNav() {
                 }}
                 onBlur={() => setHovering(false)}
                 onClick={() => navTo(l.route)}
+                tabIndex={fit.collapsed ? -1 : undefined}
                 aria-current={l.match.includes(route.name) ? 'page' : undefined}
               >
                 {l.label}
@@ -138,6 +176,7 @@ export function GooNav() {
         </div>
         <div className="flex-1" />
 
+        <div ref={toolsRef} className="flex shrink-0 items-center gap-3">
         <UsageMeter />
         <button
           onClick={() => runCommand('palette')}
@@ -155,12 +194,15 @@ export function GooNav() {
           <Plus className="size-4" />
           <span className="hidden sm:inline">Generate</span>
         </button>
-        <button className="menu-btn no-drag min-[900px]:hidden" aria-label="Menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-          <span className="menu-bar menu-bar-1" />
-          <span className="menu-bar menu-bar-2" />
-        </button>
+        {fit.collapsed && (
+          <button ref={menuBtnRef} className="menu-btn no-drag" aria-label="Menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+            <span className="menu-bar menu-bar-1" />
+            <span className="menu-bar menu-bar-2" />
+          </button>
+        )}
+        </div>
       </nav>
-      <div className="menu-panel no-drag min-[900px]:hidden">
+      <div className={cx('menu-panel no-drag', !fit.collapsed && 'hidden')}>
         {LINKS.map((l) => (
           <button key={l.label} onClick={() => navTo(l.route)}>
             {l.label}
