@@ -23,7 +23,7 @@ export function askText(title: string, opts: { label?: string; initial?: string;
 export function confirmDialog(title: string, message?: string, opts: { confirmText?: string; danger?: boolean } = {}): Promise<boolean> {
   return new Promise((resolve) => useDialog.getState().set({ title, kind: 'confirm', message, ...opts, resolve: (v) => resolve(v !== null) }))
 }
-export function chooseDialog(title: string, options: { value: string; label: string }[], opts: { label?: string; confirmText?: string; initial?: string } = {}): Promise<string | null> {
+export function chooseDialog(title: string, options: { value: string; label: string }[], opts: { label?: string; confirmText?: string; initial?: string; message?: string } = {}): Promise<string | null> {
   return new Promise((resolve) => useDialog.getState().set({ title, kind: 'choose', options, ...opts, resolve }))
 }
 

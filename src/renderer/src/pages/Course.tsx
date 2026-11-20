@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { SlidersHorizontal, Sparkles, Play, RotateCcw, CheckCircle2, AlertTriangle, FileText, Layers, MoreHorizontal, Pencil, Trash2, Upload, NotebookPen, RefreshCw, Clock, Plus, X, ClipboardCheck } from 'lucide-react'
+import { SlidersHorizontal, Sparkles, Play, RotateCcw, CheckCircle2, AlertTriangle, FileText, Layers, MoreHorizontal, Pencil, Trash2, Upload, NotebookPen, RefreshCw, Clock, Plus, X, ClipboardCheck, Download, Share2 } from 'lucide-react'
+import { importSharedWeek, shareWeek } from '../lib/weekShare'
 import type { CourseFull, Topic, WeekFull } from '@shared/course'
 import { planUsageText, type JobInfo } from '@shared/types'
 import { useStore, toast } from '../lib/store'
@@ -105,6 +106,9 @@ export function CoursePage({ id }: { id: string }) {
                 <>
                   <MenuItem icon={<Plus className="size-4" />} onClick={() => (close(), setAdding(true))}>
                     Add a week
+                  </MenuItem>
+                  <MenuItem icon={<Download className="size-4" />} onClick={() => (close(), void importSharedWeek({ courseId: id }))}>
+                    Add a shared week…
                   </MenuItem>
                   <MenuItem icon={<SlidersHorizontal className="size-4" />} onClick={() => (close(), void openAiSettings())}>
                     Models &amp; instructions
@@ -248,6 +252,9 @@ function WeekSection({ week: w, reload, write }: { week: WeekFull; reload: () =>
                   This week’s flashcards
                 </MenuItem>
               )}
+              <MenuItem icon={<Share2 className="size-4" />} onClick={() => (close(), void shareWeek(w.id))}>
+                Share this week…
+              </MenuItem>
               <MenuItem icon={<Pencil className="size-4" />} onClick={() => (close(), void rename())}>
                 Rename week
               </MenuItem>
