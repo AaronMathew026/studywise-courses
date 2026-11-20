@@ -57,6 +57,7 @@ export const CHANNELS = [
   'courses.deleteWeek',
   'courses.addFiles',
   'courses.removeFile',
+  'courses.openFile',
   'courses.plan',
   'courses.write',
   'courses.topic',

@@ -34,7 +34,7 @@ import type { Note, Folder, CustomAction } from '@shared/types'
 import { NOTE_TYPES } from '@shared/types'
 import { useStore, toast } from '../lib/store'
 import { api, onEvent, streamCall, errorText } from '../lib/api'
-import { groupByFolder, useCollapsedFolders, type FolderGroup } from '../lib/collapsed'
+import { folderPath, folderTree, groupByFolderTree, useCollapsedFolders, withSubfolders, type TreeGroup } from '../lib/collapsed'
 import { useCommands, runCommand } from '../lib/commands'
 import { askText, confirmDialog, chooseDialog } from '../lib/dialogs'
 import { Markdown } from '../components/Markdown'
@@ -83,14 +83,26 @@ export function Notes({ noteId }: { noteId: string | null }) {
   }, [])
   useEffect(load, [load, version])
 
+  // A folder shows its own notes and the ones in folders inside it.
+  const inFolder = useMemo(() => (folderId ? withSubfolders(folders, folderId) : null), [folders, folderId])
   const shown = useMemo(
-    () => notes.filter((n) => (!folderId || n.folder_id === folderId) && `${n.title} ${n.module}`.toLowerCase().includes(q.toLowerCase())),
-    [notes, folderId, q]
+    () => notes.filter((n) => (!inFolder || (n.folder_id && inFolder.has(n.folder_id))) && `${n.title} ${n.module}`.toLowerCase().includes(q.toLowerCase())),
+    [notes, inFolder, q]
   )
-  // "All notes" groups notes under their folders, which collapse. A filter shows every match.
+  const tree = useMemo(() => folderTree(folders), [folders])
+  const countIn = (id: string) => {
+    const ids = withSubfolders(folders, id)
+    return notes.filter((n) => n.folder_id && ids.has(n.folder_id)).length
+  }
+  // Notes are listed under their folders (nested), which collapse. A filter shows every match.
   const { isCollapsed, toggle } = useCollapsedFolders()
-  const groups: FolderGroup<NoteMeta>[] = useMemo(() => (!folderId && folders.length ? groupByFolder(shown, folders) : [{ folder: null, items: shown }]), [folderId, folders, shown])
-  const isOpen = (g: FolderGroup<NoteMeta>) => !g.folder || !!q || !isCollapsed(g.folder.id) || g.items.some((n) => n.id === noteId)
+  const groups: TreeGroup<NoteMeta>[] = useMemo(() => {
+    const scope = inFolder ? folders.filter((f) => inFolder.has(f.id)) : folders
+    return scope.length ? groupByFolderTree(shown, scope) : [{ folder: null, items: shown, depth: 0, ancestors: [], total: shown.length }]
+  }, [inFolder, folders, shown])
+  const holdsActive = (g: TreeGroup<NoteMeta>) => g.items.some((n) => n.id === noteId)
+  const isShown = (g: TreeGroup<NoteMeta>) => !!q || holdsActive(g) || g.ancestors.every((a) => !isCollapsed(a))
+  const isOpen = (g: TreeGroup<NoteMeta>) => isShown(g) && (!g.folder || !!q || !isCollapsed(g.folder.id) || holdsActive(g))
   const visible = groups.flatMap((g) => (isOpen(g) ? g.items : []))
   const idx = visible.findIndex((n) => n.id === noteId)
   const writing = jobs.find((j) => j.status === 'running' && j.meta?.noteId === noteId)
@@ -111,11 +123,12 @@ export function Notes({ noteId }: { noteId: string | null }) {
     [visible, idx, folderId]
   )
 
-  const noteRow = (n: NoteMeta, nested: boolean) => (
+  const noteRow = (n: NoteMeta, depth: number | null) => (
     <button
       key={n.id}
       onClick={() => go({ name: 'notes', id: n.id })}
-      className={cx('flex flex-col rounded-lg py-2 pr-3 text-left transition-colors duration-200', nested ? 'pl-9' : 'pl-3', n.id === noteId ? 'bg-accent-soft' : 'hover:bg-surface-2')}
+      className={cx('flex flex-col rounded-lg py-2 pr-3 text-left transition-colors duration-200', n.id === noteId ? 'bg-accent-soft' : 'hover:bg-surface-2')}
+      style={{ paddingLeft: depth === null ? 12 : 36 + depth * 16 }}
     >
       <span className="flex items-center gap-1.5 truncate font-semibold">
         {jobs.some((j) => j.status === 'running' && j.meta?.noteId === n.id) && <span className="pulse-dot size-2 shrink-0 rounded-full bg-accent" />}
@@ -159,19 +172,25 @@ export function Notes({ noteId }: { noteId: string | null }) {
             </button>
           </div>
           <RailItem active={!folderId} onClick={() => setFolderId(null)} label="All notes" count={notes.length} />
-          {folders.map((f) => (
+          {tree.map(({ folder: f, depth }) => (
             <RailItem
               key={f.id}
               active={folderId === f.id}
               onClick={() => setFolderId(f.id)}
               label={f.name}
-              count={notes.filter((n) => n.folder_id === f.id).length}
+              depth={depth}
+              count={countIn(f.id)}
+              onAddChild={async () => {
+                const name = await askText(`New folder in “${f.name}”`, { label: 'Folder name' })
+                if (name) await api.folders.create({ name, kind: 'note', parent_id: f.id }).then(load)
+              }}
               onRename={async () => {
                 const name = await askText('Rename folder', { initial: f.name })
                 if (name) await api.folders.rename({ id: f.id, name }).then(load)
               }}
               onDelete={async () => {
-                if (await confirmDialog(`Delete folder “${f.name}”?`, 'Notes inside are kept.', { danger: true })) {
+                const inside = withSubfolders(folders, f.id).size - 1
+                if (await confirmDialog(`Delete folder “${f.name}”?`, inside ? `The ${inside} folder${inside === 1 ? '' : 's'} inside it go too. Notes are kept.` : 'Notes inside are kept.', { danger: true })) {
                   await api.folders.delete({ id: f.id })
                   setFolderId(null)
                   load()
@@ -181,7 +200,7 @@ export function Notes({ noteId }: { noteId: string | null }) {
           ))}
           <div className="mx-2 my-2 border-t border-line" />
           <div className="stagger flex flex-col gap-0.5">
-            {groups.map((g) => {
+            {groups.filter(isShown).map((g) => {
               const open = isOpen(g)
               return (
                 <div key={g.folder?.id ?? 'loose'} className="flex flex-col gap-0.5">
@@ -189,15 +208,16 @@ export function Notes({ noteId }: { noteId: string | null }) {
                     <button
                       onClick={() => toggle(g.folder!.id)}
                       aria-expanded={open}
-                      className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[0.86rem] font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+                      className="flex items-center gap-1.5 rounded-lg py-1.5 pr-2 text-left text-[0.86rem] font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+                      style={{ paddingLeft: 8 + g.depth * 16 }}
                     >
                       <ChevronRight className={cx('size-3.5 shrink-0 transition-transform duration-200', open && 'rotate-90')} />
                       <FolderIcon className="size-3.5 shrink-0" />
                       <span className="min-w-0 flex-1 truncate">{g.folder.name}</span>
-                      <span className="text-[0.78rem] font-normal">{g.items.length}</span>
+                      <span className="text-[0.78rem] font-normal">{g.total}</span>
                     </button>
                   )}
-                  {open && g.items.map((n) => noteRow(n, !!g.folder))}
+                  {open && g.items.map((n) => noteRow(n, g.folder ? g.depth : null))}
                 </div>
               )
             })}
@@ -430,7 +450,7 @@ function NoteEditor({ id, writingJobId, folders, onChanged }: { id: string; writ
                 <MenuItem
                   onClick={async () => {
                     close()
-                    const v = await chooseDialog('Move to folder', [{ value: '', label: 'No folder' }, ...folders.map((f) => ({ value: f.id, label: f.name }))], { initial: note.folder_id ?? '' })
+                    const v = await chooseDialog('Move to folder', [{ value: '', label: 'No folder' }, ...folderTree(folders).map(({ folder: f }) => ({ value: f.id, label: folderPath(folders, f.id) }))], { initial: note.folder_id ?? '' })
                     if (v !== null) await patchMeta({ folder_id: v || null })
                   }}
                 >

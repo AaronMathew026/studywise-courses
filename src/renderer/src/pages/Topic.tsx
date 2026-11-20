@@ -69,7 +69,7 @@ function withRetry(steps: Step[], at: number): Step[] {
   return insertRetry(steps, at, { ...s, retry: (s.retry ?? 0) + 1 }, summary === -1 ? steps.length : summary).list
 }
 
-export function TopicPage({ id }: { id: string }) {
+export function TopicPage({ id, section }: { id: string; section?: number }) {
   const go = useStore((s) => s.go)
   const openExplain = useStore((s) => s.openExplain)
   const [topic, setTopic] = useState<Topic | null>(null)
@@ -91,9 +91,12 @@ export function TopicPage({ id }: { id: string }) {
         if (!t.content) throw new Error('This topic hasn’t been written yet.')
         const s = buildSteps(t)
         const p = t.progress
-        // Resume at the start of the section you were on; a finished topic starts over.
+        // Open at the section picked on the week page, or resume at the start of
+        // the section you were on; a finished topic starts over.
         let start = 0
-        if (!p.done && p.section > 0) {
+        if (section !== undefined && section >= 0 && section < t.content.sections.length) {
+          start = Math.max(0, s.findIndex((x) => x.kind === 'notes' && x.section === section))
+        } else if (!p.done && p.section > 0) {
           const i = p.section >= t.content.sections.length ? s.findIndex((x) => x.kind === 'check_intro' || x.kind === 'summary') : s.findIndex((x) => x.kind === 'notes' && x.section === p.section)
           start = Math.max(0, i)
         }
@@ -109,7 +112,7 @@ export function TopicPage({ id }: { id: string }) {
     return () => {
       alive = false
     }
-  }, [id])
+  }, [id, section])
 
   const step = steps[at]
   const slot = slots[at] ?? emptySlot()
@@ -193,8 +196,8 @@ export function TopicPage({ id }: { id: string }) {
     try {
       await api.courses.write({ topicIds: [topic.id], instructions })
       setRewriteOpen(false)
-      toast('Rewriting this topic. It’ll be ready on the course page.', 'good')
-      go({ name: 'course', id: topic.course_id })
+      toast('Rewriting this topic. It’ll be ready on the week page.', 'good')
+      go({ name: 'week', courseId: topic.course_id, weekId: topic.week_id })
     } catch (e) {
       toast(errorText(e), 'bad')
     }
@@ -206,7 +209,7 @@ export function TopicPage({ id }: { id: string }) {
       const t = e.target as HTMLElement
       if (e.metaKey || e.ctrlKey || e.altKey || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || document.querySelector('[data-modal]')) return
       if (!step) return
-      if (e.key === 'Escape') return void go({ name: 'course', id: topic!.course_id })
+      if (e.key === 'Escape') return void go({ name: 'week', courseId: topic!.course_id, weekId: topic!.week_id })
       if (step.kind === 'notes' || step.kind === 'check_intro') {
         if (e.key === 'Enter') (e.preventDefault(), next())
         return
@@ -246,7 +249,7 @@ export function TopicPage({ id }: { id: string }) {
   return (
     <div className="flex min-h-full flex-col px-[clamp(16px,3vw,40px)] pt-5 pb-10">
       <div className="mx-auto flex w-full max-w-[860px] items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => go({ name: 'course', id: topic.course_id })} title="Back to course (esc)">
+        <Button variant="ghost" size="icon" onClick={() => go({ name: 'week', courseId: topic.course_id, weekId: topic.week_id })} title="Back to the week (esc)">
           <X className="size-5" />
         </Button>
         <div className="min-w-0 flex-1">
@@ -367,7 +370,7 @@ export function TopicPage({ id }: { id: string }) {
             steps={steps}
             slots={slots}
             title={content.title}
-            onCourse={() => go({ name: 'course', id: topic.course_id })}
+            onCourse={() => go({ name: 'week', courseId: topic.course_id, weekId: topic.week_id })}
             onNext={nextTopic ? () => go({ name: 'topic', id: nextTopic.id }) : null}
             nextTitle={nextTopic?.content?.title ?? nextTopic?.plan.title}
             onSaveNote={async () => {
@@ -623,7 +626,7 @@ function Summary({
           </Button>
         )}
         <Button variant={onNext ? 'outline' : 'primary'} onClick={onCourse}>
-          Back to course
+          Back to the week
         </Button>
         <Button variant="ghost" onClick={onSaveNote}>
           <NotebookPen className="size-4" /> Open the notes

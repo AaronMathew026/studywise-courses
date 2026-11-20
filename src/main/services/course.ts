@@ -98,10 +98,20 @@ export function getCourse(id: string): CourseFull {
   const { note_folder_id: _f, ...c } = courseRow(id)
   const files = listFiles(id)
   const topics = listTopics(id)
+  const counts = new Map(
+    (getDb().prepare('SELECT w.id, COUNT(c.id) n FROM weeks w LEFT JOIN cards c ON c.deck_id = w.deck_id WHERE w.course_id = ? GROUP BY w.id').all(id) as { id: string; n: number }[]).map((r) => [r.id, r.n])
+  )
   const weeks = (getDb().prepare('SELECT * FROM weeks WHERE course_id = ? ORDER BY position').all(id) as WeekRow[]).map(
-    (w): WeekFull => ({ ...toWeek(w), files: files.filter((f) => f.week_id === w.id), topics: topics.filter((t) => t.week_id === w.id) })
+    (w): WeekFull => ({ ...toWeek(w), files: files.filter((f) => f.week_id === w.id), topics: topics.filter((t) => t.week_id === w.id), card_count: counts.get(w.id) ?? 0 })
   )
   return { ...c, weeks }
+}
+
+/** Where a course file's copy lives, to open it or show it in its folder. */
+export function courseFilePath(fileId: string): string {
+  const f = getDb().prepare('SELECT path FROM course_files WHERE id = ?').get(fileId) as { path: string } | undefined
+  if (!f || !existsSync(f.path)) throw new Error('That file is no longer in the course')
+  return f.path
 }
 
 export function listCourses(): CourseSummary[] {
@@ -304,6 +314,10 @@ export function getCourseIdForWeek(weekId: string): string {
 }
 
 export function renameWeek(weekId: string, label: string): void {
+  const before = weekRow(weekId)
+  const noteParent = (getDb().prepare('SELECT note_folder_id FROM courses WHERE id = ?').get(before.course_id) as { note_folder_id: string | null }).note_folder_id
+  const notesFolder = noteParent ? repo.listFolders('note').find((f) => f.parent_id === noteParent && f.name === before.label) : undefined
+  if (notesFolder) repo.renameFolder(notesFolder.id, label)
   setWeek(weekId, { label })
   const w = weekRow(weekId)
   if (deckExists(w.deck_id)) repo.updateDeck(w.deck_id, { name: weekDeckName(courseRow(w.course_id).name, label) })
@@ -761,8 +775,28 @@ function noteFolder(courseId: string): string {
   return f.id
 }
 
+/** The week's folder inside the course's notes folder ("Physics › Week 3"), made when missing. */
+function weekNoteFolder(weekId: string): string {
+  const w = weekRow(weekId)
+  const parent = noteFolder(w.course_id)
+  const found = repo.listFolders('note').find((f) => f.parent_id === parent && f.name === w.label)
+  return found ? found.id : repo.createFolder(w.label, 'note', parent).id
+}
+
 /**
- * The topic's notes as one note, in the course's notes folder, with its figures.
+ * Course notes are filed by week. Notes written before that sit loose in the
+ * course folder; move them into their week's folder. Notes you've moved
+ * somewhere else are left alone. Runs at startup.
+ */
+export function organizeCourseNotes(): void {
+  const rows = getDb()
+    .prepare('SELECT t.note_id, t.week_id FROM topics t JOIN courses c ON c.id = t.course_id JOIN notes n ON n.id = t.note_id WHERE n.folder_id = c.note_folder_id')
+    .all() as { note_id: string; week_id: string }[]
+  for (const r of rows) repo.updateNote(r.note_id, { folder_id: weekNoteFolder(r.week_id) })
+}
+
+/**
+ * The topic's notes as one note, in its week's notes folder, with its figures.
  * Made when the topic is written and updated when it's written again.
  */
 export async function syncTopicNote(topicId: string): Promise<string> {
@@ -790,7 +824,7 @@ export async function syncTopicNote(topicId: string): Promise<string> {
     }
   }
   if (!noteId) {
-    noteId = repo.createNote({ ...fields, folder_id: noteFolder(course.id) }).id
+    noteId = repo.createNote({ ...fields, folder_id: weekNoteFolder(week.id) }).id
     getDb().prepare('UPDATE topics SET note_id = ? WHERE id = ?').run(noteId, topicId)
   }
   repo.linkNoteDeck(noteId, ensureWeekDeck(t.week_id), true)

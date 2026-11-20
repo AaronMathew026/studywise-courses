@@ -156,6 +156,8 @@ export interface Week {
 export interface WeekFull extends Week {
   files: CourseFile[]
   topics: Topic[]
+  /** Every card in the week's deck: recall cards plus any you imported or added. */
+  card_count: number
 }
 
 export interface Course {

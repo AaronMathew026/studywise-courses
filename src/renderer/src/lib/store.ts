@@ -15,7 +15,9 @@ export type Route =
   | { name: 'jobs' }
   | { name: 'courses' }
   | { name: 'course'; id: string }
-  | { name: 'topic'; id: string }
+  | { name: 'week'; courseId: string; weekId: string }
+  /** section opens the topic at that section's notes instead of where you left off. */
+  | { name: 'topic'; id: string; section?: number }
 
 export interface Toast {
   id: number

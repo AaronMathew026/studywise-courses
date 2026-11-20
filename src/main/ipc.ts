@@ -386,6 +386,16 @@ export const handlers = {
     deleteWeek: h(z.object({ weekId: id }), (i) => course.deleteWeek(i.weekId)),
     addFiles: h(z.object({ weekId: id, files: z.array(z.string()).min(1).max(200) }), (i) => course.addFiles(i.weekId, i.files)),
     removeFile: h(z.object({ fileId: id }), (i) => course.removeFile(i.fileId)),
+    // Opens the course's copy of a file in its default app, or shows it in Explorer/Finder.
+    openFile: h(z.object({ fileId: id, reveal: z.boolean().default(false) }), async (i) => {
+      const p = course.courseFilePath(i.fileId)
+      if (i.reveal) shell.showItemInFolder(p)
+      else {
+        const err = await shell.openPath(p)
+        if (err) throw new Error(err)
+      }
+      return true
+    }),
     plan: h(z.object({ weekId: id, instructions: z.string().max(4000).default('') }), (i) => {
       const c = course.getCourse(course.getCourseIdForWeek(i.weekId))
       const w = c.weeks.find((x) => x.id === i.weekId)!

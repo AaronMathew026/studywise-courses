@@ -21,6 +21,7 @@ import { Jobs } from './pages/Jobs'
 import { Courses, NewCourseModal } from './pages/Courses'
 import { JobDock } from './components/JobLive'
 import { CoursePage } from './pages/Course'
+import { WeekPage } from './pages/Week'
 
 const Learn = lazy(() => import('./pages/Learn').then((m) => ({ default: m.Learn })))
 const TopicPage = lazy(() => import('./pages/Topic').then((m) => ({ default: m.TopicPage })))
@@ -53,9 +54,10 @@ export function App() {
       const z = Number(s['ui.zoom'] ?? 1)
       setZoom(z)
       const last = s['ui.lastRoute'] as Route | undefined
-      if (last && last.name === 'course') {
+      if (last && (last.name === 'course' || last.name === 'week')) {
         try {
-          await api.courses.get({ id: last.id })
+          const c = await api.courses.get({ id: last.name === 'course' ? last.id : last.courseId })
+          if (last.name === 'week' && !c.weeks.some((w) => w.id === last.weekId)) throw new Error('gone')
           useStore.setState({ route: last })
         } catch {
           /* gone */
@@ -93,7 +95,7 @@ export function App() {
   // Remember the last open deck / note.
   useEffect(() => {
     if (!ready) return
-    if (route.name === 'course') void api.settings.set({ key: 'ui.lastRoute', value: route })
+    if (route.name === 'course' || route.name === 'week') void api.settings.set({ key: 'ui.lastRoute', value: route })
     if (route.name === 'deck' || (route.name === 'notes' && route.id)) void api.settings.set({ key: 'ui.lastRoute', value: route.name === 'deck' ? { name: 'deck', id: route.id } : route })
   }, [route, ready])
 
@@ -388,8 +390,10 @@ function Page({ route }: { route: Route }) {
       return <Courses />
     case 'course':
       return <CoursePage id={route.id} />
+    case 'week':
+      return <WeekPage courseId={route.courseId} weekId={route.weekId} />
     case 'topic':
-      return <TopicPage id={route.id} />
+      return <TopicPage id={route.id} section={route.section} />
   }
 }
 

@@ -235,6 +235,8 @@ export function RailItem({
   icon,
   label,
   count,
+  depth = 0,
+  onAddChild,
   onRename,
   onDelete
 }: {
@@ -243,18 +245,26 @@ export function RailItem({
   icon?: React.ReactNode
   label: string
   count?: number
+  /** Nesting level, for folders inside folders. */
+  depth?: number
+  onAddChild?: () => void
   onRename?: () => void
   onDelete?: () => void
 }) {
   return (
     <div className={cx('group flex items-center rounded-full transition-colors duration-300', active ? 'bg-accent-soft' : 'hover:bg-surface-2')}>
-      <button onClick={onClick} className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-left text-[0.92rem] font-medium">
+      <button onClick={onClick} className="flex min-w-0 flex-1 items-center gap-2.5 py-2 pr-3 text-left text-[0.92rem] font-medium" style={{ paddingLeft: 12 + depth * 16 }}>
         {icon && <span className={active ? 'text-accent' : 'text-muted'}>{icon}</span>}
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {count !== undefined && <span className="text-[0.8rem] text-muted">{count}</span>}
       </button>
-      {(onRename || onDelete) && (
+      {(onAddChild || onRename || onDelete) && (
         <span className="hidden pr-1 group-hover:flex">
+          {onAddChild && (
+            <button onClick={onAddChild} className="rounded-full p-1.5 text-muted hover:text-ink" aria-label="New folder inside" title="New folder inside">
+              <FolderPlus className="size-3.5" />
+            </button>
+          )}
           {onRename && (
             <button onClick={onRename} className="rounded-full p-1.5 text-muted hover:text-ink" aria-label="Rename">
               <Pencil className="size-3.5" />

@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Notification, protocol, session, shell, net, nativeTheme } from 'electron'
 import { join, extname, normalize, sep } from 'node:path'
-import { recoverInterrupted, backfillNotes, organizeCourseDecks } from './services/course'
+import { recoverInterrupted, backfillNotes, organizeCourseDecks, organizeCourseNotes } from './services/course'
 import { appendFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { initPaths, paths } from './paths'
@@ -226,6 +226,11 @@ app.whenReady().then(async () => {
     organizeCourseDecks()
   } catch (e) {
     console.error('[courses] organising decks failed:', e)
+  }
+  try {
+    organizeCourseNotes()
+  } catch (e) {
+    console.error('[courses] organising notes failed:', e)
   }
   void backfillNotes().catch(() => {})
   aiQueue.setLimit(repo.getSetting<number>('ai.concurrency', 3))

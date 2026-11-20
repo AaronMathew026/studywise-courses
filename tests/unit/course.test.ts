@@ -197,7 +197,11 @@ describe('course service (mock AI)', () => {
     expect(note.week).toBe('1')
     expect(note.content).toContain('## Key terms:')
     expect(note.content).toMatch(/!\[.*\]\(studywise-file:\/\/courses\/.+\.png\)/)
-    expect(repoMod.listFolders('note').find((f) => f.id === note.folder_id)?.name).toBe('Quantum 101')
+    // Notes are filed by week: Quantum 101 › Week 1.
+    const noteFolders = repoMod.listFolders('note')
+    const weekFolder = noteFolders.find((f) => f.id === note.folder_id)
+    expect(weekFolder?.name).toBe('Week 1')
+    expect(noteFolders.find((f) => f.id === weekFolder?.parent_id)?.name).toBe('Quantum 101')
     expect(await svc.syncTopicNote(topics[1].id)).toBe(noteId)
 
     // Recall reaches back into earlier weeks.

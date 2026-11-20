@@ -90,7 +90,7 @@ export function JobDock() {
     if (running.length === 0) setHidden(false)
   }, [running.length])
   // Studying shouldn't be crowded; the course page shows its own.
-  if (!running.length || hidden || (route.name === 'settings' && route.tab === 'jobs') || route.name === 'course') return null
+  if (!running.length || hidden || (route.name === 'settings' && route.tab === 'jobs') || route.name === 'course' || route.name === 'week') return null
   const quiet = route.name === 'topic' || route.name === 'learn' || route.name === 'flashcards'
   return (
     <div className="pop-in fixed bottom-4 left-4 z-[60] flex w-[min(380px,calc(100vw-2rem))] flex-col gap-2 rounded-xl border border-line bg-surface/95 p-3 shadow-xl backdrop-blur" data-job-dock>
