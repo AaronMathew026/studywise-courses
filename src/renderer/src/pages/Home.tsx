@@ -94,7 +94,8 @@ export function Home() {
         </div>
 
         {/* Next-up card stack */}
-        <div className="relative mx-auto h-[250px] w-full max-w-[380px] select-none">
+        {/* The back cards are offset and tilted, so leave them room on the right. */}
+        <div className="relative mx-auto h-[250px] w-[calc(100%-2rem)] max-w-[380px] select-none">
           <div className="absolute inset-0 translate-x-4 translate-y-3 rotate-[5deg] rounded-2xl border border-line bg-surface shadow-sm" />
           <div className="absolute inset-0 translate-x-2 translate-y-1.5 rotate-[2.5deg] rounded-2xl border border-line bg-surface shadow-sm" />
           {next ? (

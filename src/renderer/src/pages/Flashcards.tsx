@@ -173,9 +173,10 @@ export function Flashcards({ deckId, mode, courseId }: { deckId: string; mode: '
       ) : (
         card && (
           <>
-            <div className="mx-auto mt-6 flex w-full max-w-[860px] flex-1 flex-col">
-              <div key={`${card.id}:${i}`} className={cx('flip pop-in min-h-[min(52vh,520px)] flex-1 cursor-pointer select-text', flipped && 'is-flipped')} onClick={() => !flipped && setFlipped(true)}>
-                <div className="flip-inner min-h-[min(52vh,520px)]">
+            {/* The card takes the room down to the buttons, within limits, so they stay together on any window size. */}
+            <div className="mx-auto mt-6 flex max-h-[680px] min-h-[280px] w-full max-w-[860px] flex-1 flex-col">
+              <div key={`${card.id}:${i}`} className={cx('flip pop-in flex flex-1 cursor-pointer flex-col select-text', flipped && 'is-flipped')} onClick={() => !flipped && setFlipped(true)}>
+                <div className="flip-inner flex-1">
                   <Face label="Question" card={card}>
                     <Markdown className="text-[clamp(1.2rem,2.4vw,1.7rem)] leading-snug font-semibold">{card.front}</Markdown>
                     {card.kind === 'multiple_choice' && (
@@ -237,11 +238,11 @@ export function Flashcards({ deckId, mode, courseId }: { deckId: string; mode: '
                 </Button>
               )}
               <div className="mt-3 flex justify-center gap-2">
-                <Button size="sm" variant="ghost" onClick={() => openExplain({ ctx: { cardId: card.id, deckId: card.deck_id }, title: card.front.split('\n')[0] })}>
-                  {keyLabel('Explain ⌘E')}
+                <Button size="sm" variant="ghost" className="text-muted hover:text-ink" onClick={() => openExplain({ ctx: { cardId: card.id, deckId: card.deck_id }, title: card.front.split('\n')[0] })}>
+                  <MessageCircleQuestion className="size-4" /> Explain <Kbd>⌘E</Kbd>
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setEditing({ ...card })}>
-                  Edit E
+                <Button size="sm" variant="ghost" className="text-muted hover:text-ink" onClick={() => setEditing({ ...card })}>
+                  <Pencil className="size-4" /> Edit <Kbd>E</Kbd>
                 </Button>
               </div>
             </div>

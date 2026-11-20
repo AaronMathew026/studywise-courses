@@ -350,7 +350,8 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
                   <Database className="size-3" /> cached
                 </Pill>
               )}
-              <span className="flex-1" />
+              {/* The tools wrap as one right-aligned group rather than one button at a time. */}
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
               {!slot.mark && q.type !== 'read_understand' && q.type !== 'match_pairs' && (
                 <Button size="sm" variant="ghost" onClick={hint} loading={hinting} disabled={slot.hints.length >= 2}>
                   Hint {slot.hints.length > 0 && `${slot.hints.length}/2`}
@@ -370,6 +371,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
                     {a.name}
                   </Button>
                 ))}
+              </div>
             </div>
 
             {slot.hints.length > 0 && (

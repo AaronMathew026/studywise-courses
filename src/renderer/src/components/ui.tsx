@@ -1,12 +1,27 @@
-import { forwardRef, useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react'
+import { forwardRef, useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Loader2 } from 'lucide-react'
 import { twMerge } from 'tailwind-merge'
+import { create } from 'zustand'
 import { prettyKey, keyLabel, COMMAND_BY_ID } from '@shared/keymap'
 
 export function cx(...c: (string | false | null | undefined)[]): string {
   return twMerge(c.filter(Boolean).join(' '))
 }
+
+/** Keeps something mounted for `ms` after `open` goes false, so it can play an exit animation. */
+export function usePresence(open: boolean, ms = 180): { mounted: boolean; closing: boolean } {
+  const [mounted, setMounted] = useState(open)
+  useEffect(() => {
+    if (open) return setMounted(true)
+    const t = setTimeout(() => setMounted(false), ms)
+    return () => clearTimeout(t)
+  }, [open, ms])
+  return { mounted: open || mounted, closing: !open && mounted }
+}
+
+/** How many modals are open, so toasts can move out of the way of their footers. */
+export const useModalCount = create<{ n: number }>(() => ({ n: 0 }))
 
 type BtnVariant = 'primary' | 'soft' | 'ghost' | 'outline' | 'danger' | 'ink'
 const BTN: Record<BtnVariant, string> = {
@@ -128,14 +143,22 @@ export function Field({ label, hint, children, className }: { label: ReactNode; 
 
 export function Segmented<T extends string>({ value, onChange, options, className }: { value: T; onChange: (v: T) => void; options: { value: T; label: ReactNode }[]; className?: string }) {
   const ref = useRef<HTMLDivElement>(null)
-  const [pill, setPill] = useState<{ left: number; width: number } | null>(null)
-  useEffect(() => {
-    const el = ref.current?.querySelector<HTMLElement>(`[data-v="${CSS.escape(value)}"]`)
-    if (el) setPill({ left: el.offsetLeft, width: el.offsetWidth })
+  const [pill, setPill] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
+  useLayoutEffect(() => {
+    const box = ref.current
+    if (!box) return
+    const measure = () => {
+      const el = box.querySelector<HTMLElement>(`[data-v="${CSS.escape(value)}"]`)
+      if (el) setPill({ left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight })
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(box)
+    return () => ro.disconnect()
   }, [value, options.length])
   return (
     <div ref={ref} className={cx('relative inline-flex flex-wrap rounded-lg bg-surface-2 p-0.5', className)}>
-      {pill && <span className="absolute top-0.5 bottom-0.5 rounded-md bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition-all duration-300 ease-out-soft" style={{ left: pill.left, width: pill.width }} />}
+      {pill && <span className="absolute rounded-md bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition-[left,top,width,height] duration-300 ease-out-soft" style={pill} />}
       {options.map((o) => (
         <button
           key={o.value}
@@ -177,14 +200,28 @@ export function Modal({
       }
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    useModalCount.setState((s) => ({ n: s.n + 1 }))
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      useModalCount.setState((s) => ({ n: s.n - 1 }))
+    }
   }, [open, onClose])
-  if (!open) return null
+  const { mounted, closing } = usePresence(open)
+  // While it animates out, show what it last showed: the data behind it is often gone already.
+  const last = useRef({ title, children, footer })
+  if (open) last.current = { title, children, footer }
+  if (!mounted) return null
+  ;({ title, children, footer } = last.current)
   return createPortal(
-    <div data-modal className="fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/30 backdrop-blur-[3px] sm:items-center sm:p-6" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      data-modal={closing ? undefined : ''}
+      className={cx('fixed inset-0 z-50 flex items-end justify-center bg-black/30 backdrop-blur-[3px] sm:items-center sm:p-6', closing ? 'fade-out pointer-events-none' : 'fade-in')}
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div
         className={cx(
-          'pop-in flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-[0_24px_60px_-20px_rgba(0,0,0,0.35)] sm:rounded-xl',
+          'flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-[0_24px_60px_-20px_rgba(0,0,0,0.35)] sm:rounded-xl',
+          closing ? 'modal-out' : 'modal-in',
           full ? 'sm:h-[92vh] sm:max-w-[1180px]' : wide ? 'sm:max-w-[860px]' : 'sm:max-w-[560px]'
         )}
       >
@@ -269,11 +306,18 @@ export function Menu({ trigger, children, align = 'right' }: { trigger: (open: (
       window.removeEventListener('keydown', onKey)
     }
   }, [open])
+  const { mounted, closing } = usePresence(open, 140)
   return (
     <div ref={ref} className="relative">
       {trigger(() => setOpen((v) => !v))}
-      {open && (
-        <div className={cx('pop-in absolute top-[calc(100%+6px)] z-40 min-w-[220px] overflow-hidden rounded-lg border border-line bg-surface p-1.5 shadow-xl', align === 'right' ? 'right-0' : 'left-0')}>
+      {mounted && (
+        <div
+          className={cx(
+            'absolute top-[calc(100%+6px)] z-40 min-w-[220px] overflow-hidden rounded-lg border border-line bg-surface p-1.5 shadow-xl',
+            align === 'right' ? 'right-0 origin-top-right' : 'left-0 origin-top-left',
+            closing ? 'menu-out pointer-events-none' : 'menu-in'
+          )}
+        >
           {children(() => setOpen(false))}
         </div>
       )}
