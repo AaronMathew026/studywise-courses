@@ -51,6 +51,11 @@ module.exports = {
     artifactName: 'Studywise-Courses-win-${arch}.${ext}'
   },
   nsis: {
+    // Running the installer again updates in place: same appId, so it replaces
+    // the old version (in whatever folder it was installed to) and leaves
+    // %APPDATA%\Studywise Courses alone, even when the old version's
+    // uninstaller runs as part of the update. Never set this to true.
+    deleteAppDataOnUninstall: false,
     oneClick: false,
     perMachine: false,
     allowToChangeInstallationDirectory: true,

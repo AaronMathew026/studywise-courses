@@ -116,6 +116,8 @@ There are a lot. `?` lists them all and `⌘K` searches everything. The main one
 
 Everything is in `~/Library/Application Support/Studywise/` (on Windows, `%APPDATA%\Studywise`): the SQLite database, pasted images, a cache and logs. Settings → General can open the folder, back the whole library up to a zip, and restore it (the old database is kept alongside).
 
+**Updating.** Run the new installer over the old one: it replaces the app wherever it was installed and never touches the data folder (on Windows that's `%APPDATA%\Studywise Courses`; uninstalling leaves it too). The first time a new version starts, it copies the database into `backups/before-<version>-…/` before migrating it, keeping the last five. To go back, quit the app and copy that `studywise.db` over the one in the data folder.
+
 **Moving to another computer.** Settings → General → Move to another computer exports everything to one `.studywise` file that works on Mac and Windows: decks, cards, notes, folders, courses with their copied files and figures, pasted images, prompts and custom actions. Progress (review history, due dates, where you are in each topic) only goes in if you tick "Include my progress". Importing (the same card, or dropping the file on the window) adds to the library that's there and never replaces anything; everything gets new ids, so importing twice gives two copies rather than a clash. Settings and API keys stay behind. Inside, it's a zip of `library.json`, `attachments/` and `courses/<id>/`, with course file paths stored relative to the course and file names made safe for both systems.
 
 ## Environment variables

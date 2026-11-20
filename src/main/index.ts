@@ -5,6 +5,7 @@ import { appendFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { initPaths, paths } from './paths'
 import { openDb } from './db'
+import { backupOnUpgrade } from './upgradeBackup'
 import { seedPresets } from './ai/presets'
 import { aiQueue } from './ai'
 import { detectClaude, setOverridePath } from './ai/claudePath'
@@ -215,6 +216,12 @@ app.whenReady().then(async () => {
     version: `Electron ${process.versions.electron}`,
     credits: 'AI features run through your own Claude Code login.'
   })
+  try {
+    const saved = backupOnUpgrade(paths.db, paths.backups, paths.lastVersion, app.getVersion())
+    if (saved) console.log(`[upgrade] now ${app.getVersion()}; database copied to ${saved}`)
+  } catch (e) {
+    console.error('[upgrade] backup before upgrade failed:', e)
+  }
   openDb(paths.db)
   seedPresets()
   recoverInterrupted()
