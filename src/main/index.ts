@@ -20,7 +20,7 @@ import * as repo from './db/repo'
 import { SUPPORTED_SOURCE_EXT } from './files'
 
 // Files the app accepts from Open With / the command line: sources plus Anki packages.
-const OPENABLE_EXT = [...SUPPORTED_SOURCE_EXT, '.apkg', '.colpkg']
+const OPENABLE_EXT = [...SUPPORTED_SOURCE_EXT, '.apkg', '.colpkg', '.studyweek']
 import { startUsageTracking, onUsage } from './usage'
 
 // ---- logging to ~/Library/Application Support/Studywise/logs/main.log ----

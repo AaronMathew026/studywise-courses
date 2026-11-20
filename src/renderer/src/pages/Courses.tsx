@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { GraduationCap, Plus, FileText, X, Upload } from 'lucide-react'
+import { GraduationCap, Plus, FileText, X, Upload, Download } from 'lucide-react'
+import { importSharedWeek } from '../lib/weekShare'
 import type { CourseSummary } from '@shared/course'
 import { useStore, toast } from '../lib/store'
 import { api, errorText } from '../lib/api'
@@ -18,9 +19,14 @@ export function Courses() {
       <PageTitle
         title="Courses"
         actions={
-          <Button variant="primary" onClick={() => openNew([])}>
-            <Plus className="size-4" /> New course
-          </Button>
+          <>
+            <Button onClick={() => void importSharedWeek()} title="Add a week a friend shared with you (.studyweek)">
+              <Download className="size-4" /> Add a shared week
+            </Button>
+            <Button variant="primary" onClick={() => openNew([])}>
+              <Plus className="size-4" /> New course
+            </Button>
+          </>
         }
       >
         Make a course for a module, then add each week’s slides, transcripts and readings as you go. Claude splits every week into topics and teaches each one in short sections, with questions as you go.

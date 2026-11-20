@@ -68,7 +68,8 @@ module.exports = {
     { ext: 'pdf', name: 'PDF Document', role: 'Viewer', rank: 'Alternate' },
     { ext: 'docx', name: 'Word Document', role: 'Viewer', rank: 'Alternate' },
     { ext: 'pptx', name: 'PowerPoint Presentation', role: 'Viewer', rank: 'Alternate' },
-    { ext: 'apkg', name: 'Anki Deck Package', role: 'Viewer', rank: 'Alternate' }
+    { ext: 'apkg', name: 'Anki Deck Package', role: 'Viewer', rank: 'Alternate' },
+    { ext: 'studyweek', name: 'Shared Studywise Week', role: 'Editor', rank: 'Owner' }
   ],
   // Lock down Electron: the app can't be run as plain Node or be driven via
   // NODE_OPTIONS. STUDYWISE_DEBUG_BUILD=1 keeps --inspect for automated checks.
