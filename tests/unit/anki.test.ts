@@ -96,10 +96,11 @@ const pbField = (field: number, v: number | string | Buffer) =>
 function modernCollection(file: string) {
   const db = new Database(file)
   db.exec(`CREATE TABLE col (id integer primary key, crt integer, mod integer, scm integer, ver integer, dty integer, usn integer, ls integer, conf text, models text, decks text, dconf text, tags text);
-    CREATE TABLE notetypes (id integer primary key, name text, mtime_secs integer, usn integer, config blob);
-    CREATE TABLE fields (ntid integer, ord integer, name text, config blob);
-    CREATE TABLE templates (ntid integer, ord integer, name text, mtime_secs integer, usn integer, config blob);
-    CREATE TABLE decks (id integer primary key, name text, mtime_secs integer, usn integer, common blob, kind blob);`)
+    CREATE TABLE notetypes (id integer primary key, name text COLLATE NOCASE, mtime_secs integer, usn integer, config blob);
+    CREATE TABLE fields (ntid integer NOT NULL, ord integer NOT NULL, name text NOT NULL COLLATE NOCASE, config blob NOT NULL, PRIMARY KEY (ntid, ord)) WITHOUT ROWID;
+    CREATE UNIQUE INDEX idx_fields_name_ntid ON fields (name, ntid);
+    CREATE TABLE templates (ntid integer NOT NULL, ord integer NOT NULL, name text NOT NULL COLLATE NOCASE, mtime_secs integer, usn integer, config blob, PRIMARY KEY (ntid, ord)) WITHOUT ROWID;
+    CREATE TABLE decks (id integer primary key, name text COLLATE NOCASE, mtime_secs integer, usn integer, common blob, kind blob);`)
   db.prepare("INSERT INTO col VALUES (1, ?, 0, 0, 18, 0, 0, 0, '', '', '', '', '')").run(CRT)
   for (const m of [BASIC_REV, CLOZE]) {
     db.prepare('INSERT INTO notetypes VALUES (?, ?, 0, 0, ?)').run(m.id, m.name, m.type === 1 ? pbField(1, 1) : Buffer.alloc(0))
@@ -113,6 +114,12 @@ function modernCollection(file: string) {
   ] as const)
     db.prepare('INSERT INTO decks VALUES (?, ?, 0, 0, ?, ?)').run(id, name, Buffer.alloc(0), Buffer.alloc(0))
   fillCommon(db)
+  // Real Anki uses its own "unicase" collation, which SQLite can't create here,
+  // so declare it the way Anki's schema does after the fact.
+  db.unsafeMode(true)
+  db.pragma('writable_schema = ON')
+  db.prepare("UPDATE sqlite_master SET sql = replace(sql, 'COLLATE NOCASE', 'COLLATE unicase')").run()
+  db.pragma('writable_schema = OFF')
   db.close()
 }
 

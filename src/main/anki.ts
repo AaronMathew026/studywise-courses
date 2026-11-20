@@ -357,6 +357,28 @@ export interface ReadOptions {
   now?: number
 }
 
+/**
+ * Current Anki declares text columns `COLLATE unicase`, a collation only Anki
+ * defines. SQLite can't use a b-tree that depends on an unknown collation, and
+ * `fields`/`templates` are WITHOUT ROWID tables whose only b-tree includes such
+ * a column, so every query on them fails ("no query solution"). better-sqlite3
+ * can't register collations, so swap it for NOCASE in our temporary copy. We
+ * never look anything up by those columns, so the index order doesn't matter.
+ */
+export function dropUnicase(dbPath: string): void {
+  const db = new Database(dbPath)
+  try {
+    const n = (db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE sql LIKE '%COLLATE unicase%'").get() as { n: number }).n
+    if (!n) return
+    db.unsafeMode(true)
+    db.pragma('writable_schema = ON')
+    db.prepare("UPDATE sqlite_master SET sql = replace(sql, 'COLLATE unicase', 'COLLATE NOCASE') WHERE sql LIKE '%COLLATE unicase%'").run()
+    db.pragma('writable_schema = OFF')
+  } finally {
+    db.close()
+  }
+}
+
 export async function readAnkiPackage(file: string | Buffer, opts: ReadOptions = {}): Promise<AnkiPackage> {
   const zip = await JSZip.loadAsync(typeof file === 'string' ? (await import('node:fs')).readFileSync(file) : file)
   const pick = ['collection.anki21b', 'collection.anki21', 'collection.anki2'].find((n) => zip.file(n))
@@ -365,6 +387,7 @@ export async function readAnkiPackage(file: string | Buffer, opts: ReadOptions =
   const work = mkdtempSync(join(tmpdir(), 'studywise-anki-'))
   const dbPath = join(work, 'collection.sqlite')
   writeFileSync(dbPath, dbBytes)
+  dropUnicase(dbPath)
   const db = new Database(dbPath, { readonly: true, fileMustExist: true })
   try {
     const info = readColInfo(db)
