@@ -489,17 +489,19 @@ button {
   background: none;
   padding: 0;
 }
+/* The wrapper draws the border and scrolls wide tables; the table itself
+   stays a real table at full width so header and rows span the whole box. */
+.md .table-wrap {
+  margin: 0.8em 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow-x: auto;
+}
 .md table {
   border-collapse: separate;
   border-spacing: 0;
   width: 100%;
-  margin: 0.8em 0;
   font-size: 0.95em;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  overflow: hidden;
-  display: block;
-  overflow-x: auto;
 }
 .md th,
 .md td {

@@ -3,12 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { renderTemplate, templateVariables } from '@shared/template'
-import { openDb, closeDb } from '../../src/main/db'
+import { openDb, closeDb, getDb } from '../../src/main/db'
 import * as presets from '../../src/main/ai/presets'
 import { renderPrompt, runAI } from '../../src/main/ai'
 import { MY_NOTES, LINKING_TEXTS } from '../../src/main/ai/prompts/notes'
 import { EXAM_FLASHCARDS } from '../../src/main/ai/prompts/cards'
-import { createDeck, updateDeck, listAiCalls } from '../../src/main/db/repo'
+import { createDeck, updateDeck, listAiCalls, getSetting, setSetting } from '../../src/main/db/repo'
 import { jsonSchemaFor, extractJson } from '../../src/main/ai/schemas'
 
 let dir: string
@@ -48,6 +48,24 @@ describe('seeded presets', () => {
     const n = presets.listPresets().length
     presets.seedPresets()
     expect(presets.listPresets().length).toBe(n)
+  })
+  it('updates untouched built-ins to the new text but keeps edited ones', () => {
+    const myNotes = () => presets.getPresetByKey('notes.my_notes')!
+    // An install from before seeding was tracked: version 1 means never edited.
+    getDb().prepare("UPDATE presets SET user_template = 'old built-in text' WHERE builtin_key = 'notes.my_notes'").run()
+    setSetting('presets.seeded', {})
+    presets.seedPresets()
+    expect(myNotes().user_template).toBe(MY_NOTES)
+
+    // Edited by the user: never overwritten.
+    presets.updatePreset(myNotes().id, { user_template: 'my own prompt' })
+    presets.seedPresets()
+    expect(myNotes().user_template).toBe('my own prompt')
+
+    // Reset: follows the built-in text again.
+    presets.resetPreset(myNotes().id)
+    expect(myNotes().user_template).toBe(MY_NOTES)
+    expect(getSetting<Record<string, string>>('presets.seeded', {})['notes.my_notes']).toBeTruthy()
   })
 })
 

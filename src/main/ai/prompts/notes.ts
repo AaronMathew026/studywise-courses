@@ -2,7 +2,7 @@ import type { SeedPreset } from './types'
 
 const NOTES_SYSTEM = `You write study notes for a university student. You follow the student's style rules exactly and only use what is in the source they give you. Output Markdown only, with no preamble and no closing remarks. Use $...$ for inline maths and $$...$$ for display maths, and \`\`\`mermaid code blocks only if a diagram genuinely needs one.`
 
-export const MY_NOTES = `Write study notes on the attached source in my personal style, described below. The notes will later be turned into flashcards where everything is examinable. So cover everything important in the source, in its order, accurately, and don't add facts that aren't in it. The only exception is a one-line analogy for an abstract idea when the source gives no example; start it with "Think of it like" so it's clearly an analogy.
+export const MY_NOTES = `Write study notes on the attached source in my personal style, described below. The notes will later be turned into flashcards where everything is examinable. So cover everything important in the source, in its order, accurately, and don't add facts that aren't in it. Leave out anything the source itself marks as not examinable: parts the slides or the lecturer call non-examinable, not assessed, optional, extra reading, "for interest only" or "won't be on the exam". If you're not sure, keep it. The only exception is a one-line analogy for an abstract idea when the source gives no example; start it with "Think of it like" so it's clearly an analogy.
 
 The note's title is {{title}}. Metadata (Module {{module}}, Type {{type}}, Week {{week}}) is stored separately, so don't write it in the body.
 

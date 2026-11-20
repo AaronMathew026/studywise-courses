@@ -1,7 +1,7 @@
 // npm run ai:real-check [-- --only=tasks|pdf]
 // Makes one real Claude call for every task and checks the output parses,
 // then generates notes and flashcards from a 12-page PDF with tables and
-// diagrams (two 8-page chunks). Writes results to ./real-check-out/.
+// diagrams (one 20-page chunk). Writes results to ./real-check-out/.
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
