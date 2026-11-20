@@ -3,7 +3,7 @@
 // pulls them (fast-forward only), runs npm install if the packages changed, and
 // starts the app again. Installed builds don't use this.
 import { app } from 'electron'
-import { execFile, spawn } from 'node:child_process'
+import { execFile, execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, openSync } from 'node:fs'
 import { join } from 'node:path'
 import type { UpdateStatus } from '@shared/update'
@@ -40,6 +40,20 @@ function run(cmd: string, args: string[], timeout = 60_000): Promise<string> {
   })
 }
 const git = (...args: string[]) => run('git', args)
+
+/**
+ * What "this version" means for backups: the app version, plus the commit for a
+ * copy run from git, whose updates (git pull) don't change the version number.
+ */
+export function buildId(version: string): string {
+  if (!supported) return version
+  try {
+    const head = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, timeout: 5000, windowsHide: true, encoding: 'utf8' }).trim()
+    return head ? `${version}+${head}` : version
+  } catch {
+    return version
+  }
+}
 
 export function updateStatus(): UpdateStatus {
   return status

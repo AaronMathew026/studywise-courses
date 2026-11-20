@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join, extname, basename } from 'node:path'
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { join, extname, basename, dirname, normalize, sep } from 'node:path'
+import JSZip from 'jszip'
+import { exportObsidian, exportNotion } from '@shared/noteFormats'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import * as repo from './db/repo'
@@ -416,7 +418,8 @@ export const handlers = {
           correct: z.number().min(0),
           checkScore: z.number().nullable(),
           checkTotal: z.number().nullable(),
-          lastStudied: z.string().nullable()
+          lastStudied: z.string().nullable(),
+          step: z.object({ kind: z.enum(['notes', 'cards', 'q']), section: z.number().int().min(0), index: z.number().int().min(0).optional() }).nullable().optional()
         })
       }),
       (i) => course.saveProgress(i.topicId, i.progress)
@@ -624,7 +627,7 @@ export const handlers = {
     importNotes: h(z.object({ files: z.array(z.string()).optional(), folderId: z.string().nullable().optional() }).optional(), async (i, ctx) => {
       const files = i?.files?.length ? i.files : await pickFiles(winOf(ctx), [{ name: 'Notes', extensions: ['md', 'markdown', 'txt', 'zip'] }])
       const ids: string[] = []
-      for (const f of files) for (const n of await io.notesFromFile(f)) ids.push(repo.createNote({ ...n, folder_id: i?.folderId ?? null }).id)
+      for (const f of files) for (const n of await io.notesFromFile(f, paths.attachments)) ids.push(repo.createNote({ ...n, folder_id: i?.folderId ?? null }).id)
       return ids
     }),
     /** Everything in one .studywise file for another computer; progress only if asked. */
@@ -639,12 +642,40 @@ export const handlers = {
       if (!file) return null
       return library.importLibrary(file)
     }),
-    exportNote: h(z.object({ noteId: id }), async (i, ctx) => {
+    /**
+     * One note as Markdown for Obsidian (frontmatter, native syntax, images next
+     * to it in attachments/) or Notion (a .zip with the note and its images when
+     * there are any, ready for Notion's Markdown import; a plain .md otherwise).
+     */
+    exportNote: h(z.object({ noteId: id, format: z.enum(['obsidian', 'notion']).default('obsidian') }), async (i, ctx) => {
       const n = repo.getNote(i.noteId)
-      const file = await pickSave(winOf(ctx), `${safeName(n.title)}.md`, [{ name: 'Markdown', extensions: ['md'] }])
+      const out = i.format === 'notion' ? exportNotion(n) : exportObsidian(n)
+      const zipped = i.format === 'notion' && out.files.length > 0
+      const file = await pickSave(winOf(ctx), `${safeName(n.title)}.${zipped ? 'zip' : 'md'}`, zipped ? [{ name: 'Zip for Notion import', extensions: ['zip'] }] : [{ name: 'Markdown', extensions: ['md'] }])
       if (!file) return null
-      const meta = [n.module && `Module: ${n.module}`, n.type && `Type: ${n.type}`, n.week && `Week: ${n.week}`].filter(Boolean).join('\n')
-      io.writeText(file, `# ${n.title}\n${meta ? `\n${meta}\n` : ''}\n${n.content}`)
+      // The app's image URLs point into its data folder.
+      const local = (url: string) => {
+        const full = join(paths.userData, normalize(decodeURIComponent(url.replace(/^studywise-file:\/\//, ''))))
+        return full.startsWith(paths.userData + sep) && existsSync(full) ? full : null
+      }
+      const fileData = (f: (typeof out.files)[number]) => (f.text !== null ? Buffer.from(f.text) : f.source && local(f.source) ? readFileSync(local(f.source)!) : null)
+      if (zipped) {
+        const zip = new JSZip()
+        zip.file(`${safeName(n.title)}.md`, out.markdown)
+        for (const f of out.files) {
+          const data = fileData(f)
+          if (data) zip.file(f.path, data)
+        }
+        writeFileSync(file, await zip.generateAsync({ type: 'nodebuffer' }))
+      } else {
+        io.writeText(file, out.markdown)
+        for (const f of out.files) {
+          const data = fileData(f)
+          if (!data) continue
+          mkdirSync(join(dirname(file), dirname(f.path)), { recursive: true })
+          writeFileSync(join(dirname(file), f.path), data)
+        }
+      }
       return file
     })
   }

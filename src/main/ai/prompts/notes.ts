@@ -2,9 +2,10 @@ import type { SeedPreset } from './types'
 
 const NOTES_SYSTEM = `You write study notes for a university student. You follow the student's style rules exactly and only use what is in the source they give you. Output Markdown only, with no preamble and no closing remarks. Use $...$ for inline maths and $$...$$ for display maths, and \`\`\`mermaid code blocks only if a diagram genuinely needs one. For a diagram mermaid can't draw well, you can use a \`\`\`svg code block instead: one self-contained <svg> with a viewBox, simple shapes and short labels, dark strokes and text on a white background, font-family="sans-serif" and text at least 12px, no scripts, no external images or fonts, under about 40 shapes.`
 
-export const MY_NOTES = `Write study notes on the attached source in my personal style, described below. The notes will later be turned into flashcards where everything is examinable. So cover everything important in the source, in its order, accurately, and don't add facts that aren't in it. Leave out anything the source itself marks as not examinable: parts the slides or the lecturer call non-examinable, not assessed, optional, extra reading, "for interest only" or "won't be on the exam". If you're not sure, keep it. The only exception is a one-line analogy for an abstract idea when the source gives no example; start it with "Think of it like" so it's clearly an analogy.
+/** My notes: the style rules are in the system prompt, so Claude can cache them across the parts of a long PDF. */
+export const MY_NOTES_SYSTEM = `${NOTES_SYSTEM}
 
-The note's title is {{title}}. Metadata (Module {{module}}, Type {{type}}, Week {{week}}) is stored separately, so don't write it in the body.
+Write study notes on the attached source in my personal style, described below. The notes will later be turned into flashcards where everything is examinable. So cover everything important in the source, in its order, accurately, and don't add facts that aren't in it. Leave out anything the source itself marks as not examinable: parts the slides or the lecturer call non-examinable, not assessed, optional, extra reading, "for interest only" or "won't be on the exam". If you're not sure, keep it. The only exception is a one-line analogy for an abstract idea when the source gives no example; start it with "Think of it like" so it's clearly an analogy.
 
 MAKE IT EASY TO GET
 - Assume I haven't studied this yet. Say what something means in everyday words first, then the proper term or definition.
@@ -53,6 +54,11 @@ Scent is how useful the link will be
   - Stay in your current patch and read the information
 - Move
   - Follow a link to another patch
+`
+
+export const MY_NOTES = `Write study notes on the attached source in my personal style, following your rules.
+
+The note's title is {{title}}. Metadata (Module {{module}}, Type {{type}}, Week {{week}}) is stored separately, so don't write it in the body.
 
 {{instructions}}
 Output the notes as Markdown only.`
@@ -69,7 +75,7 @@ Output Markdown only.`
 const QUICK_SYSTEM = `You edit a student's study notes. Keep their casual voice, Markdown structure, KaTeX maths ($...$) and any tables. Never invent facts. Output only the rewritten Markdown, with no preamble.`
 
 export const notePresets: SeedPreset[] = [
-  { builtin_key: 'notes.my_notes', task: 'generate_notes', name: 'My notes', output_mode: 'markdown', system: NOTES_SYSTEM, user_template: MY_NOTES, is_default: true },
+  { builtin_key: 'notes.my_notes', task: 'generate_notes', name: 'My notes', output_mode: 'markdown', system: MY_NOTES_SYSTEM, user_template: MY_NOTES, is_default: true },
   { builtin_key: 'notes.linking_texts', task: 'generate_notes', name: 'Linking texts', output_mode: 'markdown', system: NOTES_SYSTEM, user_template: LINKING_TEXTS, is_default: false },
   {
     builtin_key: 'note.simplify',

@@ -111,6 +111,15 @@ export interface TopicProgress {
   checkScore: number | null
   checkTotal: number | null
   lastStudied: string | null
+  /** The exact step you were on (notes, flashcards or a question), so you carry on from there. */
+  step?: TopicPlace | null
+}
+/** A place in a topic that survives the steps being rebuilt (recall cards are random). */
+export interface TopicPlace {
+  kind: 'notes' | 'cards' | 'q'
+  section: number
+  /** Which question, for kind 'q'. */
+  index?: number
 }
 export const emptyProgress = (): TopicProgress => ({ section: 0, done: false, answered: 0, correct: 0, checkScore: null, checkTotal: null, lastStudied: null })
 
@@ -233,6 +242,25 @@ export function sanitizeQuestion(q: CourseQuestion): CourseQuestion | null {
 
 export function sanitizeQuestions(qs: CourseQuestion[]): CourseQuestion[] {
   return qs.map(sanitizeQuestion).filter((q): q is CourseQuestion => q !== null)
+}
+
+/**
+ * Options in a random order, with the answer index following its option.
+ * Models tend to put the right answer in the same few places; this makes the
+ * position meaningless.
+ */
+export function shuffleOptions(options: string[], answer: number, rand: () => number = Math.random): { options: string[]; answer: number } {
+  const order = options.map((_, i) => i)
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1))
+    ;[order[i], order[j]] = [order[j], order[i]]
+  }
+  return { options: order.map((i) => options[i]), answer: order.indexOf(answer) }
+}
+
+/** Every multiple-choice question with its options shuffled. */
+export function shuffleMcqs(qs: CourseQuestion[]): CourseQuestion[] {
+  return qs.map((q) => (q.type === 'mcq' ? { ...q, ...shuffleOptions(q.options, q.answer) } : q))
 }
 
 // ---------------------------------------------------------------------------

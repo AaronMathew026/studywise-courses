@@ -284,6 +284,15 @@ function NoteEditor({ id, writingJobId, folders, onChanged }: { id: string; writ
     setSaved(true)
   }, [id])
   useEffect(() => () => void (saveTimer.current && flush()), [flush])
+  const exportAs = async (format: 'obsidian' | 'notion') => {
+    try {
+      await flush()
+      const f = await api.io.exportNote({ noteId: id, format })
+      if (f) toast(format === 'notion' && f.endsWith('.zip') ? 'Exported. In Notion: Import → Markdown, and pick the .zip.' : `Exported for ${format === 'notion' ? 'Notion' : 'Obsidian'}`, 'good')
+    } catch (e) {
+      toast(errorText(e), 'bad')
+    }
+  }
 
   const onEdit = (v: string) => {
     setContent(v)
@@ -364,7 +373,10 @@ function NoteEditor({ id, writingJobId, folders, onChanged }: { id: string; writ
       'ai.quizSelection': quizSel,
       'ai.cardsFromNote': cardsFromNote,
       'ai.explain': () => (selection() ? explainSel() : openExplain({ ctx: { noteId: id, selection: content.slice(0, 4000) }, title: note?.title })),
-      'io.exportNote': () => void flush().then(() => api.io.exportNote({ noteId: id })).then((f) => f && toast('Exported', 'good')),
+      'io.exportNote': async () => {
+        const format = await chooseDialog('Export note', [{ value: 'obsidian', label: 'Obsidian (Markdown with properties, images in attachments/)' }, { value: 'notion', label: 'Notion (Markdown, or a .zip with images, for Notion’s import)' }], { confirmText: 'Export' })
+        if (format) await exportAs(format as 'obsidian' | 'notion')
+      },
       'item.rename': async () => {
         const t = await askText('Rename note', { initial: note?.title })
         if (t) await patchMeta({ title: t })
@@ -424,9 +436,10 @@ function NoteEditor({ id, writingJobId, folders, onChanged }: { id: string; writ
                 <MenuItem kbd="ai.explain" onClick={() => (close(), runCommand('ai.explain'))}>
                   Explain this note
                 </MenuItem>
-                <MenuItem kbd="io.exportNote" onClick={() => (close(), runCommand('io.exportNote'))}>
-                  Export as Markdown
+                <MenuItem kbd="io.exportNote" onClick={() => (close(), void exportAs('obsidian'))}>
+                  Export for Obsidian
                 </MenuItem>
+                <MenuItem onClick={() => (close(), void exportAs('notion'))}>Export for Notion</MenuItem>
                 <MenuItem
                   onClick={async () => {
                     close()

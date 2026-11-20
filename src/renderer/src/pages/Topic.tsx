@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, Lightbulb, CheckCircle2, XCircle, CircleDot, BookOpen, Trophy, Brain, ArrowRight, Sparkles, Shuffle, NotebookPen, RotateCcw, RefreshCw, HelpCircle, ClipboardCheck } from 'lucide-react'
+import { X, Lightbulb, CheckCircle2, XCircle, CircleDot, BookOpen, Trophy, Brain, ArrowRight, Sparkles, Shuffle, NotebookPen, RotateCcw, RefreshCw, HelpCircle, ClipboardCheck, ArrowLeft } from 'lucide-react'
 import {
   COURSE_QUESTION_LABELS,
   expectedText,
@@ -41,6 +41,8 @@ interface Slot {
   hint: boolean
   correction: string
   overridden: boolean
+  /** Already queued to come back, so going back and continuing again doesn't add it twice. */
+  requeued?: boolean
 }
 const emptySlot = (): Slot => ({ answer: null, mark: null, marking: false, hint: false, correction: '', overridden: false })
 
@@ -100,11 +102,13 @@ export function TopicPage({ id, test = false }: { id: string; test?: boolean }) 
         const p = t.progress
         // Learning resumes at the start of the section you were on; a finished topic starts over. A test always starts at the beginning.
         let start = 0
-        if (!test && !p.done && p.section > 0) {
-          const i = p.section >= t.content.sections.length ? s.findIndex((x) => x.kind === 'summary') : s.findIndex((x) => x.kind === 'notes' && x.section === p.section)
+        if (!test && !p.done && (p.section > 0 || p.step)) {
+          // The exact step you saved at, else the start of that section.
+          const exact = p.step ? s.findIndex((x) => x.kind === p.step!.kind && 'section' in x && x.section === p.step!.section && (x.kind !== 'q' || (x.index === p.step!.index && !x.retry))) : -1
+          const i = exact >= 0 ? exact : p.section >= t.content.sections.length ? s.findIndex((x) => x.kind === 'summary') : s.findIndex((x) => x.kind === 'notes' && x.section === p.section)
           start = Math.max(0, i)
         }
-        progress.current = p.done && !test ? { ...p, section: 0, answered: 0, correct: 0 } : { ...p }
+        progress.current = p.done && !test ? { ...p, section: 0, answered: 0, correct: 0, step: null } : { ...p }
         setTopic(t)
         setSteps(s)
         setAt(start)
@@ -131,21 +135,27 @@ export function TopicPage({ id, test = false }: { id: string; test?: boolean }) 
   // Remember where you are, and wrap up at the end.
   useEffect(() => {
     if (!step || !topic?.content) return
-    if (step.kind === 'notes') save({ section: step.section })
+    // Learning saves your place at every step, so leaving and coming back carries on exactly here.
+    if (!test && (step.kind === 'notes' || step.kind === 'cards' || (step.kind === 'q' && step.section >= 0 && !step.retry)))
+      save({ section: step.section, step: { kind: step.kind, section: step.section, ...(step.kind === 'q' ? { index: step.index } : {}) } })
     if (step.kind === 'summary') {
       if (test) {
         // Only your first try at each question counts.
         const checks = steps.map((s, i) => [s, i] as const).filter(([s]) => s.kind === 'q' && s.section === -1 && !s.retry)
         const score = checks.reduce((n, [, i]) => n + credit(slots[i]?.mark ?? null), 0)
         save({ checkScore: Math.round(score * 10) / 10, checkTotal: checks.length })
-      } else save({ section: topic.content.sections.length, done: true })
+      } else save({ section: topic.content.sections.length, done: true, step: null })
       useStore.getState().bump()
     }
   }, [at, step?.kind])
 
+  /** One step back: from questions to the notes, from a section to the one before. Answers you gave stay as they were. */
+  const back = () => setAt((i) => Math.max(0, i - 1))
+
   const next = () => {
     // Not right yet: it comes back a little later in this session.
-    if (step?.kind === 'q' && slot.mark && slot.mark.verdict !== 'correct') {
+    if (step?.kind === 'q' && slot.mark && slot.mark.verdict !== 'correct' && !slot.requeued) {
+      patch(at, { requeued: true })
       const updated = withRetry(steps, at)
       setSteps(updated)
       setAt(Math.min(updated.length - 1, at + 1))
@@ -215,7 +225,11 @@ export function TopicPage({ id, test = false }: { id: string; test?: boolean }) 
       const t = e.target as HTMLElement
       if (e.metaKey || e.ctrlKey || e.altKey || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || document.querySelector('[data-modal]')) return
       if (!step) return
-      if (e.key === 'Escape') return void go({ name: 'course', id: topic!.course_id })
+      if (e.key === 'Escape') {
+        if (!test && step.kind !== 'summary') toast('Progress saved. You’ll carry on from here.', 'good')
+        return void go({ name: 'course', id: topic!.course_id })
+      }
+      if ((e.key === 'b' || e.key === 'B') && step.kind !== 'cards') return void back()
       if (step.kind === 'notes' || step.kind === 'check_intro') {
         if (e.key === 'Enter') (e.preventDefault(), next())
         return
@@ -256,8 +270,21 @@ export function TopicPage({ id, test = false }: { id: string; test?: boolean }) 
   return (
     <div className="flex min-h-full flex-col px-[clamp(16px,3vw,40px)] pt-5 pb-10">
       <div className="mx-auto flex w-full max-w-[860px] items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => go({ name: 'course', id: topic.course_id })} title="Back to course (esc)">
-          <X className="size-5" />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            // Your place is saved at every step; this just says so on the way out.
+            if (!test && step.kind !== 'summary') toast('Progress saved. You’ll carry on from here.', 'good')
+            go({ name: 'course', id: topic.course_id })
+          }}
+          title={test ? 'Leave the test (esc)' : 'Save your place and go back to the course (esc)'}
+          className="shrink-0"
+        >
+          <X className="size-4" /> {test ? 'Exit test' : 'Save & exit'}
+        </Button>
+        <Button variant="ghost" size="icon" onClick={back} disabled={at === 0} title="Back a step (B)">
+          <ArrowLeft className="size-5" />
         </Button>
         <div className="min-w-0 flex-1">
           <div className="mb-1.5 flex items-center justify-between gap-2 text-[0.85rem] text-muted">
@@ -290,7 +317,7 @@ export function TopicPage({ id, test = false }: { id: string; test?: boolean }) 
       <div className="mx-auto mt-7 w-full max-w-[860px] flex-1">
         {step.kind === 'notes' && <NotesStep key={at} section={content.sections[step.section]} first={step.section === 0} goal={content.goal} onNext={next} onAsk={() => askAbout(content.sections[step.section])} />}
 
-        {step.kind === 'cards' && <CardsStep key={at} cards={content.sections[step.section].cards ?? []} topicId={topic.id} onNext={next} />}
+        {step.kind === 'cards' && <CardsStep key={at} cards={content.sections[step.section].cards ?? []} section={content.sections[step.section]} topicId={topic.id} onNext={next} onBack={back} />}
 
         {step.kind === 'recall' && <RecallStep key={at} courseId={topic.course_id} topicId={topic.id} onNext={next} />}
 
@@ -518,12 +545,13 @@ const MAX_CARD_TRIES = 4
 
 /**
  * The section's key terms before its questions. Think of the answer, flip, and
- * rate yourself. "Didn't know" or "Sort of" opens a page that explains the term
- * properly (more than the card says), and the card goes to the back of the pile
- * until you know it. Ratings feed spaced repetition. Keys: Space/↩ flip and
- * continue, 1–3 rate.
+ * rate yourself; ratings feed spaced repetition. "Didn't know" or "Sort of"
+ * sends the card to the back of the pile until you know it, and lets you choose
+ * how to go over it: move on, re-read the section's notes (no AI), or have
+ * Claude explain it in depth (one AI call, only when you ask). Keys: Space/↩
+ * flip and continue, 1–3 rate, N notes, E explain with AI.
  */
-function CardsStep({ cards, topicId, onNext }: { cards: { front: string; back: string; id?: string }[]; topicId: string; onNext: () => void }) {
+function CardsStep({ cards, section, topicId, onNext, onBack }: { cards: { front: string; back: string; id?: string }[]; section: TopicSection; topicId: string; onNext: () => void; onBack: () => void }) {
   // Card indexes still to go; ones you don't know yet go back on the end.
   const [queue, setQueue] = useState(() => cards.map((_, i) => i))
   const [tries, setTries] = useState<Record<number, number>>({})
@@ -531,6 +559,8 @@ function CardsStep({ cards, topicId, onNext }: { cards: { front: string; back: s
   const [rated, setRated] = useState<CardRating | null>(null)
   const [explanation, setExplanation] = useState<string | null>(null)
   const [explaining, setExplaining] = useState(false)
+  /** After a miss: the card with your choices, the section's notes, or the AI explanation. */
+  const [view, setView] = useState<'card' | 'notes' | 'ai'>('card')
   const idx = queue[0]
   const card = cards[idx]
   const again = (tries[idx] ?? 0) > 0
@@ -546,10 +576,16 @@ function CardsStep({ cards, topicId, onNext }: { cards: { front: string; back: s
     setFlipped(false)
     setRated(null)
     setExplanation(null)
+    setView('card')
   }
+
+  /** Back from the notes or explanation to the card; from the card, back out of the step. */
+  const goBack = () => (view !== 'card' ? setView('card') : onBack())
 
   const explain = async (r: CardRating) => {
     if (explaining || !card) return
+    setView('ai')
+    if (explanation) return
     setExplaining(true)
     setExplanation('')
     try {
@@ -569,7 +605,6 @@ function CardsStep({ cards, topicId, onNext }: { cards: { front: string; back: s
     void api.courses.rateCard({ topicId, front: card.front, cardId: card.id, rating: r }).catch(() => {})
     if (r === 3) return advance(r)
     setRated(r)
-    void explain(r)
   }
 
   useEffect(() => {
@@ -581,6 +616,9 @@ function CardsStep({ cards, topicId, onNext }: { cards: { front: string; back: s
         if (!flipped) setFlipped(true)
         else if (rated && !explaining) advance(rated)
       } else if (flipped && !rated && ['1', '2', '3'].includes(e.key)) rate(Number(e.key) as CardRating)
+      else if (e.key === 'b' || e.key === 'B') goBack()
+      else if (rated && (e.key === 'n' || e.key === 'N')) setView('notes')
+      else if (rated && (e.key === 'e' || e.key === 'E')) void explain(rated)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -588,8 +626,46 @@ function CardsStep({ cards, topicId, onNext }: { cards: { front: string; back: s
   if (!card) return null
   const comesBack = (tries[idx] ?? 0) + 1 < MAX_CARD_TRIES
 
-  // Not known yet: a page that explains it properly before the next card.
-  if (rated)
+  const backButton = (
+    <Button variant="ghost" size="lg" onClick={goBack} disabled={explaining}>
+      <ArrowLeft className="size-4" /> Back to the card <Kbd className="ml-1">B</Kbd>
+    </Button>
+  )
+  const comesBackNote = <span className="text-[0.85rem] text-muted">{comesBack ? 'This card comes back at the end until you know it.' : 'Spaced review will bring this one back soon.'}</span>
+  const nextButton = (label: string) => (
+    <Button variant="primary" size="lg" onClick={() => rated && advance(rated)} disabled={explaining}>
+      {label} <ArrowRight className="size-4" /> <Kbd className="ml-1 border-current/30">↩</Kbd>
+    </Button>
+  )
+  const aiButton = (
+    <Button variant="ghost" size="lg" onClick={() => rated && void explain(rated)}>
+      <Sparkles className="size-4" /> Explain it with AI <Kbd className="ml-1">E</Kbd>
+    </Button>
+  )
+
+  // You chose to re-read the section: its notes again, no AI.
+  if (rated && view === 'notes')
+    return (
+      <div className="pop-in flex flex-col gap-5">
+        <div className="flex items-center gap-2 text-[0.85rem] text-muted">
+          <Pill tone="accent">Key terms</Pill>
+          <span>Back to the notes for “{card.front.replace(/\?$/, '')}”</span>
+        </div>
+        <div className="rounded-xl border border-line bg-surface p-[clamp(18px,3.4vw,36px)]">
+          <h2 className="mb-4 text-[clamp(1.35rem,2.6vw,1.85rem)] leading-tight font-semibold tracking-tight">{section.heading}</h2>
+          <Markdown className="text-[1.05rem] leading-relaxed">{section.notes}</Markdown>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {nextButton('Got it, next')}
+          {backButton}
+          {aiButton}
+          {comesBackNote}
+        </div>
+      </div>
+    )
+
+  // You chose an AI explanation: a page that goes through it properly.
+  if (rated && view === 'ai')
     return (
       <div key={`explain-${idx}-${tries[idx] ?? 0}`} className="pop-in flex flex-col gap-5">
         <div className="flex items-center gap-2 text-[0.85rem] text-muted">
@@ -615,10 +691,9 @@ function CardsStep({ cards, topicId, onNext }: { cards: { front: string; back: s
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Button variant="primary" size="lg" onClick={() => advance(rated)} disabled={explaining}>
-            Got it, next <ArrowRight className="size-4" /> <Kbd className="ml-1 border-current/30">↩</Kbd>
-          </Button>
-          <span className="text-[0.85rem] text-muted">{comesBack ? 'This card comes back at the end until you know it.' : 'Spaced review will bring this one back soon.'}</span>
+          {nextButton('Got it, next')}
+          {backButton}
+          {comesBackNote}
         </div>
       </div>
     )
@@ -657,6 +732,18 @@ function CardsStep({ cards, topicId, onNext }: { cards: { front: string; back: s
         <Button variant="primary" size="lg" className="self-start" onClick={() => setFlipped(true)}>
           Show answer <Kbd className="ml-1 border-current/30">↩</Kbd>
         </Button>
+      ) : rated ? (
+        <div className="flex flex-col gap-2">
+          <span className="text-[0.85rem] text-muted">Want to go over it before the next card?</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {nextButton('Next')}
+            <Button variant="outline" size="lg" onClick={() => setView('notes')}>
+              <BookOpen className="size-4" /> Re-read the notes <Kbd className="ml-1">N</Kbd>
+            </Button>
+            {aiButton}
+          </div>
+          {comesBackNote}
+        </div>
       ) : (
         <div className="flex flex-col gap-2">
           <span className="text-[0.85rem] text-muted">How well did you know it?</span>
