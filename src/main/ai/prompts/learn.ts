@@ -19,7 +19,7 @@ For each card below, write ONE question of the requested "type". Return one item
 
 Types:
 - read_understand: "title" (a short heading) and "explanation": a short, clear explanation of the card's concept (3–6 short lines, Markdown, an example if it helps).
-- multiple_choice: "question" and exactly 4 "options" with ONE correct one ("correct_index", 0–3). Distractors must be plausible and similar in length and style to the right answer, not obviously wrong. Vary the position of the correct option.
+- multiple_choice: "question" and exactly 4 "options" with ONE correct one ("correct_index", 0–3), and make the right answer impossible to spot from its form: all four options about the same length (within a few words) and with the same level of detail. The right answer must not be the longest, the most precise or complete-sounding, the only one with a qualifier ("usually", "only when", "in most cases"), or the only one that reuses the question's wording. Wrong options are real misconceptions or near misses written just as carefully. No "all/none of the above", no joke options, no two options that mean the same thing.
 - free_answer: "question" (rephrase the card's question if needed so it stands alone) and "expected_answer": the answer written as concisely as possible, keeping every required point.
 - true_false: a "statement" about the card. Make roughly half true and half subtly false (change one key detail: a number, a direction, a term). Set "is_true", and when false put the true version in "correction".
 - choice_blank: the card's blanks are given in "blanks" (in order). Return "distractors": for each blank, 3 plausible wrong options of the same kind (same part of speech, same units, similar length).

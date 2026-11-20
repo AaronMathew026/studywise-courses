@@ -268,3 +268,19 @@ describe('live progress parsing', () => {
     expect(stringValues(json, 'notes').done).toEqual(['This is "the" idea.\nMore'])
   })
 })
+
+describe('multiple-choice shuffling', () => {
+  it('moves the answer index with its option, and keeps every option', async () => {
+    const { shuffleOptions } = await import('@shared/course')
+    const opts = ['right', 'wrong a', 'wrong b', 'wrong c']
+    const seen = new Set<number>()
+    for (let i = 0; i < 200; i++) {
+      const s = shuffleOptions(opts, 0)
+      expect(s.options[s.answer]).toBe('right')
+      expect([...s.options].sort()).toEqual([...opts].sort())
+      seen.add(s.answer)
+    }
+    // Over many shuffles the right answer lands in every position.
+    expect(seen.size).toBe(4)
+  })
+})

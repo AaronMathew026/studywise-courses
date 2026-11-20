@@ -38,6 +38,8 @@ const firstLine = (s: string) => String(s ?? '').split('\n').find((l) => l.trim(
 
 export function mockResponse(task: TaskId, mode: string, vars: Record<string, unknown>, prompt: string): { text: string; structured: unknown } {
   const v = (k: string) => String(vars[k] ?? '')
+  // Tests: a first reply in the wrong shape, so the repair step runs.
+  if (vars.mock_bad_json && !prompt.includes('<reply>')) return { text: JSON.stringify({ wrong_shape: true, padding: 'x'.repeat(300) }), structured: null }
   switch (task) {
     case 'generate_notes': {
       const title = v('title') || 'the topic'

@@ -19,6 +19,7 @@ import {
   mergeOutlines,
   pageList,
   sanitizeQuestions,
+  shuffleMcqs,
   type AiTopic,
   type Course,
   type CourseFile,
@@ -654,8 +655,8 @@ export async function writeTopic(topicId: string, ctx: JobContext, instructions 
       sections: ai.sections
         .map((s, i) => ({ s, cards: sectionCards(ai.cards, i + 1) }))
         .filter(({ s }) => s.heading.trim() || s.notes.trim())
-        .map(({ s, cards }) => ({ heading: s.heading.trim(), notes: s.notes.trim(), figure: mapFigure(s.figure, src.attached), cards, questions: sanitizeQuestions(s.questions) })),
-      check: sanitizeQuestions(ai.check)
+        .map(({ s, cards }) => ({ heading: s.heading.trim(), notes: s.notes.trim(), figure: mapFigure(s.figure, src.attached), cards, questions: shuffleMcqs(sanitizeQuestions(s.questions)) })),
+      check: shuffleMcqs(sanitizeQuestions(ai.check))
     }
     if (!content.sections.length) throw new Error('Claude returned a topic with no sections.')
 

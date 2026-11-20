@@ -1,5 +1,7 @@
-import { readFileSync, writeFileSync } from 'node:fs'
-import { basename, extname } from 'node:path'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs'
+import { basename, extname, dirname, join, resolve, posix } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { parseFrontmatter, importMarkdown, type ImportOptions } from '@shared/noteFormats'
 import ExcelJS from 'exceljs'
 import JSZip from 'jszip'
 import { z } from 'zod'
@@ -249,50 +251,96 @@ export interface ImportedNote {
   content: string
 }
 
-/** Notion exports put properties as "Key: value" lines under the title. */
-export function noteFromMarkdown(md: string, fallbackTitle: string): ImportedNote {
+/**
+ * A note from Notion or Obsidian Markdown (or plain Markdown). Properties come
+ * from frontmatter (Obsidian) or "Key: value" lines under the title (Notion);
+ * callouts, toggles, page links and images are converted (see noteFormats).
+ */
+export function noteFromMarkdown(md: string, fallbackTitle: string, opts: ImportOptions = {}): ImportedNote {
   let text = md.replace(/\r\n?/g, '\n')
   let title = fallbackTitle.replace(/\s+[0-9a-f]{32}$/i, '').trim()
-  const h1 = text.match(/^#\s+(.+)\n/)
+  const meta: Record<string, string> = {}
+  // Obsidian frontmatter comes first; Notion's title heading comes first.
+  const fm = parseFrontmatter(text)
+  for (const [k, v] of Object.entries(fm.data)) meta[k] = Array.isArray(v) ? v.join(', ') : v
+  text = fm.body
+  const h1 = text.match(/^\s*#\s+(.+)\n/)
   if (h1) {
     title = h1[1].trim()
     text = text.slice(h1[0].length)
   }
-  const meta: Record<string, string> = {}
-  // Frontmatter
-  const fm = text.match(/^---\n([\s\S]*?)\n---\n/)
-  if (fm) {
-    for (const line of fm[1].split('\n')) {
-      const m = line.match(/^(\w+):\s*(.*)$/)
-      if (m) meta[m[1].toLowerCase()] = m[2].replace(/^["']|["']$/g, '')
-    }
-    text = text.slice(fm[0].length)
-  }
   // Notion property lines right after the title
   const lines = text.split('\n')
   let i = 0
+  let props = 0
   while (i < lines.length && (lines[i].trim() === '' || /^(Module|Type|Week|Created|Tags|Status|Date)\s*:/i.test(lines[i]))) {
     const m = lines[i].match(/^(\w+)\s*:\s*(.*)$/)
-    if (m) meta[m[1].toLowerCase()] = m[2].trim()
+    if (m) (meta[m[1].toLowerCase()] = m[2].trim()), props++
     i++
   }
-  if (Object.keys(meta).length) text = lines.slice(i).join('\n')
+  if (props) text = lines.slice(i).join('\n')
   if (meta.title) title = meta.title
-  return { title: title || 'Untitled', module: meta.module ?? '', type: meta.type ?? '', week: meta.week ?? '', content: text.trim() + '\n' }
+  // Frontmatter properties the note has no field for stay in the note, so exporting to Obsidian brings them back.
+  const extra = Object.entries(fm.data).filter(([k]) => !['title', 'module', 'type', 'week'].includes(k))
+  const keep = extra.length ? `---\n${extra.map(([k, v]) => `${k}: ${Array.isArray(v) ? `[${v.join(', ')}]` : v}`).join('\n')}\n---\n\n` : ''
+  return { title: title || 'Untitled', module: meta.module ?? '', type: meta.type ?? '', week: meta.week ?? '', content: keep + importMarkdown(text, opts).trim() + '\n' }
 }
 
-export async function notesFromFile(file: string): Promise<ImportedNote[]> {
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp)$/i
+
+/** Copy an imported image into the attachments folder; returns the URL notes use for it. */
+function saveImage(attachmentsDir: string, name: string, data: Buffer | Uint8Array): string {
+  mkdirSync(attachmentsDir, { recursive: true })
+  const fname = `${randomUUID()}${extname(name).toLowerCase() || '.png'}`
+  writeFileSync(join(attachmentsDir, fname), data)
+  return `studywise-file://attachments/${fname}`
+}
+
+/**
+ * Notes from a .md file or a .zip (a Notion export or an Obsidian vault).
+ * Images they reference are copied into `attachmentsDir`: by relative path
+ * (Notion), or by file name anywhere nearby (Obsidian's ![[embeds]]).
+ */
+export async function notesFromFile(file: string, attachmentsDir?: string): Promise<ImportedNote[]> {
   const ext = extname(file).toLowerCase()
+  const saved = new Map<string, string>()
+  const once = (key: string, name: string, load: () => Buffer | Uint8Array | null): string | null => {
+    if (!attachmentsDir) return null
+    if (saved.has(key)) return saved.get(key)!
+    const data = load()
+    if (!data) return null
+    const url = saveImage(attachmentsDir, name, data)
+    saved.set(key, url)
+    return url
+  }
   if (ext === '.md' || ext === '.markdown' || ext === '.txt') {
-    return [noteFromMarkdown(readFileSync(file, 'utf8'), basename(file, ext))]
+    const dir = dirname(file)
+    // Where Obsidian and Notion usually keep a note's images.
+    const near = [dir, join(dir, 'attachments'), join(dir, 'assets'), join(dir, 'images'), join(dir, '_resources'), join(dir, basename(file, ext)), dirname(dir), join(dirname(dir), 'attachments')]
+    const resolveImage = (ref: string) => {
+      if (!IMAGE_EXT.test(ref)) return null
+      const hit = [resolve(dir, ref), ...near.map((d) => join(d, basename(ref)))].find((p) => existsSync(p) && statSync(p).isFile())
+      return hit ? once(hit, hit, () => readFileSync(hit)) : null
+    }
+    return [noteFromMarkdown(readFileSync(file, 'utf8'), basename(file, ext), { resolveImage })]
   }
   if (ext === '.zip') {
     const zip = await JSZip.loadAsync(readFileSync(file))
+    const entries = Object.keys(zip.files).filter((n) => !zip.files[n].dir && !n.startsWith('__MACOSX'))
+    const images = new Map<string, Uint8Array>()
+    for (const n of entries.filter((n) => IMAGE_EXT.test(n))) images.set(n, await zip.files[n].async('uint8array'))
+    const byName = new Map<string, string>()
+    for (const n of images.keys()) if (!byName.has(basename(n).toLowerCase())) byName.set(basename(n).toLowerCase(), n)
     const out: ImportedNote[] = []
-    const names = Object.keys(zip.files).filter((n) => /\.(md|markdown)$/i.test(n) && !zip.files[n].dir && !n.startsWith('__MACOSX'))
-    for (const n of names.sort()) {
+    for (const n of entries.filter((n) => /\.(md|markdown)$/i.test(n)).sort()) {
+      const base = n.includes('/') ? n.slice(0, n.lastIndexOf('/') + 1) : ''
+      const resolveImage = (ref: string) => {
+        const rel = posix.normalize(base + ref.replace(/^\.\//, ''))
+        const key = images.has(rel) ? rel : byName.get(basename(ref).toLowerCase())
+        return key ? once(key, key, () => images.get(key) ?? null) : null
+      }
       const md = await zip.files[n].async('string')
-      out.push(noteFromMarkdown(md, basename(n).replace(/\.(md|markdown)$/i, '')))
+      out.push(noteFromMarkdown(md, basename(n).replace(/\.(md|markdown)$/i, ''), { resolveImage }))
     }
     return out
   }

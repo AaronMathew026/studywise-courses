@@ -366,7 +366,7 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
           </div>
         )}
         {t.status === 'error' && !writing && <div className="mt-1 text-[0.85rem] text-bad">{t.error}</div>}
-        {t.status === 'ready' && !p.done && p.section > 0 && <ProgressBar value={p.section / sections} className="mt-2 h-1.5 max-w-[240px]" />}
+        {t.status === 'ready' && !p.done && (p.section > 0 || p.step) && <ProgressBar value={p.section / sections} className="mt-2 h-1.5 max-w-[240px]" />}
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-2 text-[0.85rem] text-muted" onClick={(e) => e.stopPropagation()}>
         {t.plan.minutes > 0 && (
@@ -388,7 +388,7 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
         {t.status === 'ready' ? (
           <>
             <Button size="sm" variant={p.done ? 'ghost' : 'soft'} onClick={() => go({ name: 'topic', id: t.id })}>
-              {p.done ? <RotateCcw className="size-4" /> : <Play className="size-4" />} {p.done ? 'Again' : p.section > 0 ? 'Continue' : 'Start'}
+              {p.done ? <RotateCcw className="size-4" /> : <Play className="size-4" />} {p.done ? 'Again' : p.section > 0 || p.step ? 'Continue' : 'Start'}
             </Button>
             {!!t.content?.check.length && (
               <Button size="sm" variant="ghost" onClick={() => go({ name: 'topic', id: t.id, test: true })} title={`Topic test: ${t.content.check.length} questions, from memory`}>

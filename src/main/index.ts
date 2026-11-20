@@ -15,7 +15,7 @@ import { loadWindowState, trackWindowState } from './windowState'
 import { onJobEvent, runningJobCount, setUsageProbe } from './jobs'
 import { activeProvider } from './ai/models'
 import { isMock } from './ai'
-import { startUpdateChecks } from './updater'
+import { startUpdateChecks, buildId } from './updater'
 import * as repo from './db/repo'
 import { SUPPORTED_SOURCE_EXT } from './files'
 
@@ -217,8 +217,10 @@ app.whenReady().then(async () => {
     credits: 'AI features run through your own Claude Code login.'
   })
   try {
-    const saved = backupOnUpgrade(paths.db, paths.backups, paths.lastVersion, app.getVersion())
-    if (saved) console.log(`[upgrade] now ${app.getVersion()}; database copied to ${saved}`)
+    // A copy run from git also counts a new commit (an update or a pull) as an upgrade.
+    const version = buildId(app.getVersion())
+    const saved = backupOnUpgrade(paths.db, paths.backups, paths.lastVersion, version)
+    if (saved) console.log(`[upgrade] now ${version}; database copied to ${saved}`)
   } catch (e) {
     console.error('[upgrade] backup before upgrade failed:', e)
   }

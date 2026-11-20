@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { renderTemplate, templateVariables } from '@shared/template'
 import { openDb, closeDb, getDb } from '../../src/main/db'
 import * as presets from '../../src/main/ai/presets'
-import { renderPrompt, runAI } from '../../src/main/ai'
+import { renderPrompt, runAI, repairPrompt } from '../../src/main/ai'
 import { MY_NOTES, LINKING_TEXTS } from '../../src/main/ai/prompts/notes'
 import { EXAM_FLASHCARDS } from '../../src/main/ai/prompts/cards'
 import { createDeck, updateDeck, listAiCalls, getSetting, setSetting } from '../../src/main/db/repo'
@@ -74,8 +74,10 @@ describe('prompt override + schema append', () => {
     const hint = presets.defaultPreset('hint')
     const r = renderPrompt({ task: 'hint', presetId: hint.id, vars: {}, presetOverride: { system: 'x', user_template: 'Just say something about {{front}}', output_mode: 'json' } })
     expect(r.prompt.startsWith('Just say something about')).toBe(true)
-    expect(r.prompt).toContain('OUTPUT FORMAT')
-    expect(r.prompt).toContain('"hint"')
+    // The format rides with the system prompt (cached across calls), not the message.
+    expect(r.system).toContain('OUTPUT FORMAT')
+    expect(r.system).toContain('"hint"')
+    expect(r.prompt).not.toContain('OUTPUT FORMAT')
     expect(r.schema).toEqual(jsonSchemaFor('hint'))
   })
   it('editing bumps the version, keeps history, and reset restores it', () => {
@@ -116,6 +118,16 @@ describe('runAI with AI_MOCK', () => {
     const r = await runAI<{ hint: string }>({ task: 'hint', vars: { front: 'q', back: 'a' } })
     expect(typeof r.data.hint).toBe('string')
     expect(listAiCalls(5)[0].task).toBe('hint')
+  })
+  it('fixes a reply in the wrong shape by sending back just the reply, not the whole request', async () => {
+    const before = listAiCalls(1000).length
+    const r = await runAI<{ hint: string }>({ task: 'hint', vars: { front: 'q', back: 'a', mock_bad_json: true } })
+    expect(typeof r.data.hint).toBe('string')
+    // The bad reply, then one repair call: no full re-run.
+    expect(listAiCalls(1000).length - before).toBe(2)
+    const fix = repairPrompt('{"wrong_shape": true}', 'hint: Required')
+    expect(fix).toContain('<reply>\n{"wrong_shape": true}\n</reply>')
+    expect(fix).toContain('hint: Required')
   })
   it('extractJson finds JSON inside prose and fences', () => {
     expect(extractJson('Sure! {"a": {"b": "}"}} trailing')).toEqual({ a: { b: '}' } })
