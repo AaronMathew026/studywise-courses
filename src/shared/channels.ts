@@ -68,6 +68,9 @@ export const CHANNELS = [
   'courses.recallReview',
   'courses.saveNote',
   'courses.rename',
+  'courses.due',
+  'courses.deckSettings',
+  'courses.setDeckSettings',
   'courses.delete',
   'jobs.list',
   'jobs.get',
@@ -119,5 +122,7 @@ export const CHANNELS = [
   'io.importDeck',
   'io.exportDeck',
   'io.importNotes',
+  'io.exportLibrary',
+  'io.importLibrary',
   'io.exportNote',
 ] as const

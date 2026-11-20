@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Notification, protocol, session, shell, net, nativeTheme } from 'electron'
 import { join, extname, normalize, sep } from 'node:path'
-import { recoverInterrupted, backfillNotes } from './services/course'
+import { recoverInterrupted, backfillNotes, organizeCourseDecks } from './services/course'
 import { appendFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { initPaths, paths } from './paths'
@@ -207,6 +207,11 @@ app.whenReady().then(async () => {
   openDb(paths.db)
   seedPresets()
   recoverInterrupted()
+  try {
+    organizeCourseDecks()
+  } catch (e) {
+    console.error('[courses] organising decks failed:', e)
+  }
   void backfillNotes().catch(() => {})
   aiQueue.setLimit(repo.getSetting<number>('ai.concurrency', 3))
   setOverridePath(repo.getSetting<string | null>('claude.overridePath', null))

@@ -16,6 +16,7 @@ import * as course from './services/course'
 import { CourseQuestion } from '@shared/course'
 import * as io from './importexport'
 import { backupLibrary, restoreLibrary } from './backup'
+import * as library from './library'
 import { paths } from './paths'
 import { getUsage } from './usage'
 import {
@@ -376,14 +377,20 @@ export const handlers = {
       (i) => course.saveProgress(i.topicId, i.progress)
     ),
     resetProgress: h(z.object({ topicId: id }), (i) => course.resetTopicProgress(i.topicId)),
-    mark: h(z.object({ courseId: id, question: CourseQuestion, answer: z.string().max(20000) }), (i) => {
+    mark: h(z.object({ courseId: id, question: CourseQuestion, answer: z.string().max(20000), topicId: z.string().optional() }), (i) => {
       if (i.question.type !== 'explain') throw new Error('Only explain questions are marked by Claude')
-      return course.markExplain(i.courseId, i.question, i.answer)
+      return course.markExplain(i.courseId, i.question, i.answer, i.topicId)
     }),
     recall: h(z.object({ courseId: id, excludeTopicId: id, exclude: z.array(z.string()).max(500).default([]) }), (i) => course.recallCard(i.courseId, i.excludeTopicId, i.exclude)),
     recallReview: h(z.object({ cardId: id, knew: z.boolean() }), (i) => course.recallReview(i.cardId, i.knew)),
     saveNote: h(z.object({ topicId: id }), (i) => course.syncTopicNote(i.topicId)),
     rename: h(z.object({ id, name: z.string().min(1).max(200) }), (i) => course.renameCourse(i.id, i.name)),
+    due: h(z.object({ courseId: id }), (i) => course.dueCards(i.courseId)),
+    deckSettings: h(z.object({ courseId: id }), (i) => course.courseDeckSettings(i.courseId)),
+    setDeckSettings: h(
+      z.object({ courseId: id, extra_instructions: z.string().max(10000), model_overrides: z.record(z.string(), ModelChoice), thresholds: Thresholds.nullable() }),
+      (i) => course.setCourseDeckSettings(i.courseId, { extra_instructions: i.extra_instructions, model_overrides: i.model_overrides, thresholds: i.thresholds })
+    ),
     delete: h(z.object({ id, keepDeck: z.boolean().default(false) }), (i) => course.deleteCourse(i.id, i.keepDeck))
   },
 
@@ -400,7 +407,7 @@ export const handlers = {
     saveSettings: h(z.object({ deckId: id, settings: LearnSettings }), (i) => repo.updateDeck(i.deckId, { learn_settings: i.settings }).learn_settings),
     start: h(z.object({ deckId: id, cardIds: z.array(z.string()).optional() }), (i) => learn.startSession(i.deckId, i.cardIds)),
     batch: h(z.object({ sessionId: id, batch: z.number().int().min(0) }), (i) => learn.getBatch(i.sessionId, i.batch)),
-    submit: h(z.object({ sessionId: z.string().nullable(), deckId: id, question: LearnQuestionSchema, answer: LearnAnswerSchema }), (i) => learn.submitAnswer(i.sessionId, i.deckId, i.question, i.answer)),
+    submit: h(z.object({ sessionId: z.string().nullable(), deckId: id, question: LearnQuestionSchema, answer: LearnAnswerSchema, retry: z.boolean().optional() }), (i) => learn.submitAnswer(i.sessionId, i.deckId, i.question, i.answer, i.retry)),
     override: h(z.object({ attemptId: id }), (i) => learn.overrideAttempt(i.attemptId)),
     feedback: h(z.object({ attemptId: id }), (i) => learn.feedbackFor(i.attemptId)),
     hint: h(z.object({ cardId: id, question: LearnQuestionSchema, index: z.number().int().min(0).max(1), previous: z.array(z.string()) }), (i) => learn.hintFor(i.cardId, i.question, i.index, i.previous)),
@@ -541,6 +548,18 @@ export const handlers = {
       const ids: string[] = []
       for (const f of files) for (const n of await io.notesFromFile(f)) ids.push(repo.createNote({ ...n, folder_id: i?.folderId ?? null }).id)
       return ids
+    }),
+    /** Everything in one .studywise file for another computer; progress only if asked. */
+    exportLibrary: h(z.object({ includeProgress: z.boolean().default(false) }), async (i, ctx) => {
+      const file = await pickSave(winOf(ctx), library.libraryFileName(), [{ name: 'Studywise library', extensions: [library.LIBRARY_EXT] }])
+      if (!file) return null
+      return { file, ...(await library.exportLibrary(file, { includeProgress: i.includeProgress })) }
+    }),
+    /** Adds a .studywise file's contents to this library (nothing is replaced). */
+    importLibrary: h(z.object({ files: z.array(z.string()).max(20).optional() }).optional(), async (i, ctx) => {
+      const [file] = i?.files?.length ? i.files : await pickFiles(winOf(ctx), [{ name: 'Studywise library', extensions: [library.LIBRARY_EXT] }], false)
+      if (!file) return null
+      return library.importLibrary(file)
     }),
     exportNote: h(z.object({ noteId: id }), async (i, ctx) => {
       const n = repo.getNote(i.noteId)

@@ -7,7 +7,8 @@ export type Route =
   | { name: 'home' }
   | { name: 'decks'; folderId?: string | null }
   | { name: 'deck'; id: string; cardId?: string }
-  | { name: 'flashcards'; deckId: string; mode: 'due' | 'all' }
+  /** With courseId, reviews the due cards from every week of that course (deckId is unused). */
+  | { name: 'flashcards'; deckId: string; mode: 'due' | 'all'; courseId?: string }
   | { name: 'learn'; deckId: string; cardIds?: string[] }
   | { name: 'notes'; id?: string | null }
   | { name: 'settings'; tab?: string }

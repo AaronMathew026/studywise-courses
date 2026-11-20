@@ -143,7 +143,7 @@ export function App() {
   const lastDeckId = async (): Promise<string | null> => {
     const r = useStore.getState().route
     if (r.name === 'deck') return r.id
-    if (r.name === 'flashcards' || r.name === 'learn') return r.deckId
+    if (r.name === 'flashcards' || r.name === 'learn') return r.deckId || null
     const s = await api.settings.all()
     const last = s['ui.lastRoute'] as Route | undefined
     if (last?.name === 'deck') return last.id
@@ -285,7 +285,23 @@ export function App() {
       e.preventDefault()
       depth = 0
       setDragging(false)
-      const files = [...(e.dataTransfer?.files ?? [])].map((f) => window.studywise.pathForFile(f)).filter((p) => /\.(pdf|docx|pptx|txt|md|markdown|vtt|srt)$/i.test(p))
+      const all = [...(e.dataTransfer?.files ?? [])].map((f) => window.studywise.pathForFile(f))
+      // A library export dropped on the window is imported (added to this library).
+      const lib = all.find((p) => /\.studywise$/i.test(p))
+      if (lib) {
+        void confirmDialog('Import this library?', 'Its decks, notes and courses are added to yours. Nothing is replaced.', { confirmText: 'Import' }).then(async (ok) => {
+          if (!ok) return
+          try {
+            const r = await api.io.importLibrary({ files: [lib] })
+            if (r) toast(`Added ${r.decks} decks, ${r.cards} cards, ${r.notes} notes and ${r.courses} courses`, 'good')
+            useStore.getState().bump()
+          } catch (err) {
+            toast(errorText(err), 'bad')
+          }
+        })
+        return
+      }
+      const files = all.filter((p) => /\.(pdf|docx|pptx|txt|md|markdown|vtt|srt)$/i.test(p))
       if (files.length) useStore.getState().setDropFiles(files)
     }
     window.addEventListener('dragenter', enter)
@@ -354,7 +370,7 @@ function Page({ route }: { route: Route }) {
     case 'deck':
       return <DeckPage id={route.id} focusCardId={route.cardId} />
     case 'flashcards':
-      return <Flashcards deckId={route.deckId} mode={route.mode} />
+      return <Flashcards deckId={route.deckId} mode={route.mode} courseId={route.courseId} />
     case 'learn':
       return <Learn deckId={route.deckId} cardIds={route.cardIds} />
     case 'notes':

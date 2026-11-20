@@ -437,7 +437,8 @@ function Figure({ label, value, accent }: { label: string; value: React.ReactNod
   )
 }
 
-export function DeckSettings({ deck, onClose, onSaved }: { deck: Deck; onClose: () => void; onSaved: () => void }) {
+/** Deck settings. With courseId it edits the AI settings every week deck of that course shares. */
+export function DeckSettings({ deck, onClose, onSaved, courseId }: { deck: Deck; onClose: () => void; onSaved: () => void; courseId?: string }) {
   const [name, setName] = useState(deck.name)
   const [description, setDescription] = useState(deck.description)
   const [extra, setExtra] = useState(deck.extra_instructions)
@@ -447,16 +448,18 @@ export function DeckSettings({ deck, onClose, onSaved }: { deck: Deck; onClose: 
   const [notes, setNotes] = useState<Omit<Note, 'content'>[]>([])
   const [linked, setLinked] = useState<Set<string>>(new Set())
   useEffect(() => {
+    if (courseId) return
     void api.notes.list().then((n) => {
       setNotes(n)
       setLinked(new Set(n.filter((x) => x.deck_ids.includes(deck.id)).map((x) => x.id)))
     })
-  }, [deck.id])
+  }, [deck.id, courseId])
 
   const save = async () => {
     const clean = Object.fromEntries(Object.entries(overrides).filter(([, v]) => v.model))
-    await api.decks.update({ id: deck.id, patch: { name, description, extra_instructions: extra, model_overrides: clean, thresholds: customTh ? th : null } })
-    toast('Deck settings saved', 'good')
+    if (courseId) await api.courses.setDeckSettings({ courseId, extra_instructions: extra, model_overrides: clean, thresholds: customTh ? th : null })
+    else await api.decks.update({ id: deck.id, patch: { name, description, extra_instructions: extra, model_overrides: clean, thresholds: customTh ? th : null } })
+    toast(courseId ? 'Course settings saved' : 'Deck settings saved', 'good')
     onSaved()
     onClose()
   }
@@ -466,7 +469,7 @@ export function DeckSettings({ deck, onClose, onSaved }: { deck: Deck; onClose: 
       open
       onClose={onClose}
       wide
-      title="Deck settings & AI"
+      title={courseId ? `${deck.name}: models & instructions` : 'Deck settings & AI'}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -479,15 +482,19 @@ export function DeckSettings({ deck, onClose, onSaved }: { deck: Deck; onClose: 
       }
     >
       <div className="flex flex-col gap-5">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Name">
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
-          <Field label="Description">
-            <Input value={description} onChange={(e) => setDescription(e.target.value)} />
-          </Field>
-        </div>
-        <Field label="Extra instructions for every AI prompt in this deck" hint="e.g. “Use SI units”, “I’m studying for A-level Physics (AQA)”, “Answer in German”">
+        {courseId ? (
+          <p className="text-[0.9rem] text-muted">These apply to the whole course: planning, writing topics, marking, and every week’s flashcard deck.</p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Name">
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </Field>
+            <Field label="Description">
+              <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+            </Field>
+          </div>
+        )}
+        <Field label={courseId ? 'Extra instructions for every AI prompt in this course' : 'Extra instructions for every AI prompt in this deck'} hint="e.g. “Use SI units”, “I’m studying for A-level Physics (AQA)”, “Answer in German”">
           <Textarea rows={3} value={extra} onChange={(e) => setExtra(e.target.value)} />
         </Field>
         <div>
@@ -506,7 +513,7 @@ export function DeckSettings({ deck, onClose, onSaved }: { deck: Deck; onClose: 
             </Field>
           </div>
         </div>
-        <div>
+        {!courseId && <div>
           <div className="mb-2 flex items-center gap-2 text-[0.8rem] font-semibold text-muted">
             <Link2 className="size-3.5" /> Linked notes (used as context for Explain)
           </div>
@@ -533,9 +540,9 @@ export function DeckSettings({ deck, onClose, onSaved }: { deck: Deck; onClose: 
               )
             })}
           </div>
-        </div>
+        </div>}
         <div>
-          <div className="mb-2 text-[0.8rem] font-semibold text-muted">Model overrides for this deck</div>
+          <div className="mb-2 text-[0.8rem] font-semibold text-muted">Model overrides for this {courseId ? 'course' : 'deck'}</div>
           <div className="overflow-hidden rounded-lg border border-line">
             {TASKS.filter((t) => t !== 'custom_action').map((t) => (
               <div key={t} className="grid grid-cols-[1fr_140px_120px] items-center gap-2 border-b border-line px-3 py-1.5 last:border-0 max-sm:grid-cols-1">

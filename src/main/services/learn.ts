@@ -457,11 +457,17 @@ export async function markAnswer(deckId: string, q: LearnQuestion, a: LearnAnswe
   throw new Error(`Can't mark ${q.type}`)
 }
 
-export async function submitAnswer(sessionId: string | null, deckId: string, q: LearnQuestion, a: LearnAnswer): Promise<{ attemptId: string; mark: Mark }> {
+/**
+ * Mark an answer and update the schedule. A retry (a missed question asked
+ * again later in the session) is marked the same way but leaves the schedule
+ * alone, since the first answer already counted, and stays out of the
+ * session's stats.
+ */
+export async function submitAnswer(sessionId: string | null, deckId: string, q: LearnQuestion, a: LearnAnswer, retry = false): Promise<{ attemptId: string; mark: Mark }> {
   const mark = await markAnswer(deckId, q, a)
   const prev: Record<string, ReviewState | null> = {}
   // SM-2: group questions update each card by its own item result.
-  if (q.type !== 'read_understand') {
+  if (q.type !== 'read_understand' && !retry) {
     if (q.type === 'match_pairs' || q.type === 'categorize') {
       const wrong = new Set((mark.detail?.wrongItems ?? []).map((i) => (q.type === 'match_pairs' ? q.payload.pairs[i]?.card_id : q.payload.items[i]?.card_id)))
       for (const id of q.card_ids) {
@@ -479,7 +485,7 @@ export async function submitAnswer(sessionId: string | null, deckId: string, q: 
       `INSERT INTO answer_attempts (id, session_id, card_id, qtype, question, answer, score, verdict, mark, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(id, sessionId, q.card_id, q.type, JSON.stringify(q), JSON.stringify(a), mark.score, mark.verdict, JSON.stringify({ ...mark, prev }), now())
+    .run(id, retry ? null : sessionId, q.card_id, q.type, JSON.stringify(q), JSON.stringify(a), mark.score, mark.verdict, JSON.stringify({ ...mark, prev, retry }), now())
   return { attemptId: id, mark }
 }
 
