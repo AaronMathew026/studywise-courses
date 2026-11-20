@@ -2,7 +2,7 @@
 
 A course, flashcard and notes app for Mac and Windows.
 
-Make a course for a module, then add each week's slides, transcripts and readings. Claude splits every week into topics and teaches each one in short sections: a screen of notes (with the slide's figure if it helps), a few quick questions, then the next bit. Each topic ends with a check and leaves recall cards that pop up while you learn other topics and in spaced review.
+Make a course for a module, then add each week's slides, transcripts and readings. Claude splits every week into topics and teaches each one in short sections: a screen of notes (with the slide's figure if it helps), a few quick questions, then the next bit. Each topic has a separate test you take from the course page when you're ready, and leaves recall cards that pop up while you learn other topics and in spaced review.
 
 It also keeps everything from Studywise: give it a lecture PDF and it makes notes and flashcards, then quizzes you and marks your answers.
 

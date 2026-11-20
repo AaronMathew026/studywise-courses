@@ -58,7 +58,7 @@ This step only plans the topics. Don't write any lessons yet.
 Write topic {{topic_id}} ("{{topic_title}}"). Only teach what belongs to that topic; the other topics get their own lessons. Skip anything in the sources marked as not examinable (non-examinable, not assessed, optional, extra reading, "for interest only", "won't be on the exam"): don't teach it, test it or make cards from it. Use the sections the outline lists for this topic, in that order. You can split one if it's too long for a screen.
 
 == HOW IT WORKS ==
-The topic is a run of short sections. Each section is one screen of notes, followed straight away by 2–4 quick questions on what I just read. A mixed check comes at the end. So it goes: read a bit, answer a bit, read a bit, answer a bit.
+The topic is a run of short sections. Each section is one screen of notes, then its flashcards, then 2–4 quick questions on what I just read. So it goes: read a bit, answer a bit, read a bit, answer a bit. The topic test is separate: I take it later, from memory, when I choose.
 
 == SECTIONS ==
 - One idea per section, about one screen: 60–180 words of notes, plus a small table if it helps. If it needs more than that, split it.
@@ -128,7 +128,7 @@ Rules:
 - Everything in the outline's "stressed" list for this topic gets tested at least once.
 
 == TOPIC CHECK ==
-"check": after the last section, 5–8 mixed questions across the whole topic, a bit harder than the section questions. Include at least one explain question and at least one scenario.
+"check": the topic test, which I take separately from memory (no notes), maybe days later: 5–8 mixed questions across the whole topic, a bit harder than the section questions. Each must make sense without the notes in front of me. Include at least one explain question and at least one scenario.
 
 == RECALL CARDS ==
 "cards": 8–15 flashcards for this topic. I see each section's cards straight after its notes and before its questions, so I know the key definitions before I'm tested on them. They're also used later for spaced repetition and surprise recall questions, so each card must make sense completely on its own: no "according to the above" or "in this topic". Short "front", short "back" (bullets are fine). Cover the definitions, key lists, contrasts and anything stressed.

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, Lightbulb, CheckCircle2, XCircle, CircleDot, BookOpen, Trophy, Brain, ArrowRight, Sparkles, Shuffle, NotebookPen, RotateCcw, RefreshCw, HelpCircle } from 'lucide-react'
+import { X, Lightbulb, CheckCircle2, XCircle, CircleDot, BookOpen, Trophy, Brain, ArrowRight, Sparkles, Shuffle, NotebookPen, RotateCcw, RefreshCw, HelpCircle, ClipboardCheck } from 'lucide-react'
 import {
   COURSE_QUESTION_LABELS,
   expectedText,
@@ -44,9 +44,16 @@ interface Slot {
 }
 const emptySlot = (): Slot => ({ answer: null, mark: null, marking: false, hint: false, correction: '', overridden: false })
 
-function buildSteps(t: Topic): Step[] {
+/** Learning: each section's notes, flashcards and questions. The test (the topic's check questions) is separate, started from the course page. */
+function buildSteps(t: Topic, test: boolean): Step[] {
   const c = t.content!
   const steps: Step[] = []
+  if (test) {
+    steps.push({ kind: 'check_intro' })
+    c.check.forEach((q, j) => steps.push({ kind: 'q', section: -1, index: j, q }))
+    steps.push({ kind: 'summary' })
+    return steps
+  }
   c.sections.forEach((s, i) => {
     steps.push({ kind: 'notes', section: i })
     if (s.cards?.length) steps.push({ kind: 'cards', section: i })
@@ -54,10 +61,6 @@ function buildSteps(t: Topic): Step[] {
     // Never two recall cards in a row: there's always a section between them.
     if (i < c.sections.length - 1 && Math.random() < RECALL_CHANCE) steps.push({ kind: 'recall', after: i })
   })
-  if (c.check.length) {
-    steps.push({ kind: 'check_intro' })
-    c.check.forEach((q, j) => steps.push({ kind: 'q', section: -1, index: j, q }))
-  }
   steps.push({ kind: 'summary' })
   return steps
 }
@@ -72,7 +75,7 @@ function withRetry(steps: Step[], at: number): Step[] {
   return insertRetry(steps, at, { ...s, retry: (s.retry ?? 0) + 1 }, summary === -1 ? steps.length : summary).list
 }
 
-export function TopicPage({ id }: { id: string }) {
+export function TopicPage({ id, test = false }: { id: string; test?: boolean }) {
   const go = useStore((s) => s.go)
   const openExplain = useStore((s) => s.openExplain)
   const [topic, setTopic] = useState<Topic | null>(null)
@@ -92,15 +95,16 @@ export function TopicPage({ id }: { id: string }) {
       .then(async (t) => {
         if (!alive) return
         if (!t.content) throw new Error('This topic hasn’t been written yet.')
-        const s = buildSteps(t)
+        if (test && !t.content.check.length) throw new Error('This topic has no test questions. Write it again to get some.')
+        const s = buildSteps(t, test)
         const p = t.progress
-        // Resume at the start of the section you were on; a finished topic starts over.
+        // Learning resumes at the start of the section you were on; a finished topic starts over. A test always starts at the beginning.
         let start = 0
-        if (!p.done && p.section > 0) {
-          const i = p.section >= t.content.sections.length ? s.findIndex((x) => x.kind === 'check_intro' || x.kind === 'summary') : s.findIndex((x) => x.kind === 'notes' && x.section === p.section)
+        if (!test && !p.done && p.section > 0) {
+          const i = p.section >= t.content.sections.length ? s.findIndex((x) => x.kind === 'summary') : s.findIndex((x) => x.kind === 'notes' && x.section === p.section)
           start = Math.max(0, i)
         }
-        progress.current = p.done ? { ...p, section: 0, answered: 0, correct: 0 } : { ...p }
+        progress.current = p.done && !test ? { ...p, section: 0, answered: 0, correct: 0 } : { ...p }
         setTopic(t)
         setSteps(s)
         setAt(start)
@@ -112,7 +116,7 @@ export function TopicPage({ id }: { id: string }) {
     return () => {
       alive = false
     }
-  }, [id])
+  }, [id, test])
 
   const step = steps[at]
   const slot = slots[at] ?? emptySlot()
@@ -128,11 +132,13 @@ export function TopicPage({ id }: { id: string }) {
   useEffect(() => {
     if (!step || !topic?.content) return
     if (step.kind === 'notes') save({ section: step.section })
-    if (step.kind === 'check_intro') save({ section: topic.content.sections.length })
     if (step.kind === 'summary') {
-      const checks = steps.map((s, i) => [s, i] as const).filter(([s]) => s.kind === 'q' && s.section === -1 && !s.retry)
-      const score = checks.reduce((n, [, i]) => n + credit(slots[i]?.mark ?? null), 0)
-      save({ section: topic.content.sections.length, done: true, checkScore: checks.length ? Math.round(score * 10) / 10 : null, checkTotal: checks.length || null })
+      if (test) {
+        // Only your first try at each question counts.
+        const checks = steps.map((s, i) => [s, i] as const).filter(([s]) => s.kind === 'q' && s.section === -1 && !s.retry)
+        const score = checks.reduce((n, [, i]) => n + credit(slots[i]?.mark ?? null), 0)
+        save({ checkScore: Math.round(score * 10) / 10, checkTotal: checks.length })
+      } else save({ section: topic.content.sections.length, done: true })
       useStore.getState().bump()
     }
   }, [at, step?.kind])
@@ -162,7 +168,7 @@ export function TopicPage({ id }: { id: string }) {
         correction = r.wrong
       } else mark = markCourseAnswer(q, a)
       patch(i, { mark, marking: false, correction })
-      if (progress.current && !step.retry) save({ answered: progress.current.answered + 1, correct: progress.current.correct + credit(mark) })
+      if (progress.current && !step.retry && !test) save({ answered: progress.current.answered + 1, correct: progress.current.correct + credit(mark) })
     } catch (e) {
       patch(i, { marking: false, answer: null })
       toast(errorText(e), 'bad')
@@ -241,7 +247,8 @@ export function TopicPage({ id }: { id: string }) {
   const content = topic.content
   const sectionCount = content.sections.length
   const curSection = step.kind === 'notes' || step.kind === 'cards' || step.kind === 'q' ? step.section : step.kind === 'recall' ? step.after : sectionCount
-  const inCheck = step.kind === 'check_intro' || (step.kind === 'q' && step.section === -1)
+  const qCount = content.check.length
+  const qDone = steps.slice(0, at).filter((s) => s.kind === 'q' && s.section === -1 && !s.retry).length
   const idx = siblings.findIndex((t) => t.id === topic.id)
   const nextTopic = siblings.slice(idx + 1).find((t) => t.status === 'ready' && !t.progress.done)
   const verdict = slot.mark?.verdict
@@ -255,21 +262,29 @@ export function TopicPage({ id }: { id: string }) {
         <div className="min-w-0 flex-1">
           <div className="mb-1.5 flex items-center justify-between gap-2 text-[0.85rem] text-muted">
             <span className="truncate font-semibold">{content.title}</span>
-            <span>{inCheck ? 'Topic check' : step.kind === 'summary' ? 'Done' : `Section ${Math.min(curSection + 1, sectionCount)} of ${sectionCount}`}</span>
+            <span>{test ? (step.kind === 'summary' ? 'Done' : `Topic test · ${Math.min(qDone + (step.kind === 'q' ? 1 : 0), qCount)} of ${qCount}`) : step.kind === 'summary' ? 'Done' : `Section ${Math.min(curSection + 1, sectionCount)} of ${sectionCount}`}</span>
           </div>
           <div className="flex gap-1">
-            {content.sections.map((_, i) => (
-              <div key={i} className={cx('h-2 flex-1 rounded-full transition-colors duration-500', i < curSection || inCheck || step.kind === 'summary' ? 'bg-good' : i === curSection ? 'bg-accent' : 'bg-surface-2')} />
-            ))}
-            {content.check.length > 0 && <div className={cx('h-2 w-10 rounded-full transition-colors duration-500', step.kind === 'summary' ? 'bg-good' : inCheck ? 'bg-accent' : 'bg-surface-2')} />}
+            {test
+              ? content.check.map((_, i) => (
+                  <div key={i} className={cx('h-2 flex-1 rounded-full transition-colors duration-500', i < qDone || step.kind === 'summary' ? 'bg-good' : i === qDone && step.kind === 'q' ? 'bg-accent' : 'bg-surface-2')} />
+                ))
+              : content.sections.map((_, i) => (
+                  <div key={i} className={cx('h-2 flex-1 rounded-full transition-colors duration-500', i < curSection || step.kind === 'summary' ? 'bg-good' : i === curSection ? 'bg-accent' : 'bg-surface-2')} />
+                ))}
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={() => setRewriteOpen(true)} title="Rewrite this topic">
-          <RefreshCw className="size-5" />
-        </Button>
-        <Button variant="ghost" size="icon" onClick={() => setNotesOpen(true)} title="All notes so far">
-          <BookOpen className="size-5" />
-        </Button>
+        {/* A test is from memory: no notes, and nothing to rewrite mid-test. */}
+        {!test && (
+          <>
+            <Button variant="ghost" size="icon" onClick={() => setRewriteOpen(true)} title="Rewrite this topic">
+              <RefreshCw className="size-5" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => setNotesOpen(true)} title="All notes so far">
+              <BookOpen className="size-5" />
+            </Button>
+          </>
+        )}
       </div>
 
       <div className="mx-auto mt-7 w-full max-w-[860px] flex-1">
@@ -282,12 +297,12 @@ export function TopicPage({ id }: { id: string }) {
         {step.kind === 'check_intro' && (
           <div className="pop-in flex flex-col items-start gap-4 rounded-xl border border-line bg-surface p-[clamp(18px,3.4vw,36px)]">
             <Brain className="size-8 text-accent" strokeWidth={1.6} />
-            <h2 className="text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-semibold tracking-tight">Topic check</h2>
+            <h2 className="text-[clamp(1.4rem,2.6vw,1.9rem)] leading-tight font-semibold tracking-tight">Topic test</h2>
             <p className="text-muted">
-              {content.check.length} questions across the whole topic, a bit harder than the ones so far. No notes this time.
+              {content.check.length} questions across the whole topic, a bit harder than the ones while you learn it. No notes this time. Only your first try at each counts towards your score.
             </p>
             <Button variant="primary" size="lg" onClick={next}>
-              Start the check <Kbd className="ml-1 border-current/30">↩</Kbd>
+              Start the test <Kbd className="ml-1 border-current/30">↩</Kbd>
             </Button>
           </div>
         )}
@@ -375,6 +390,8 @@ export function TopicPage({ id }: { id: string }) {
             onCourse={() => go({ name: 'course', id: topic.course_id })}
             onNext={nextTopic ? () => go({ name: 'topic', id: nextTopic.id }) : null}
             nextTitle={nextTopic?.content?.title ?? nextTopic?.plan.title}
+            test={test}
+            onTest={!test && content.check.length ? () => go({ name: 'topic', id: topic.id, test: true }) : null}
             onSaveNote={async () => {
               const noteId = await api.courses.saveNote({ topicId: topic.id })
               go({ name: 'notes', id: noteId })
@@ -385,7 +402,7 @@ export function TopicPage({ id }: { id: string }) {
 
       <Modal open={notesOpen} onClose={() => setNotesOpen(false)} title={content.title} wide>
         <div className="flex flex-col gap-6">
-          {content.sections.slice(0, Math.max(1, Math.min(sectionCount, inCheck || step.kind === 'summary' ? sectionCount : curSection + 1))).map((s, i) => (
+          {content.sections.slice(0, Math.max(1, Math.min(sectionCount, step.kind === 'summary' ? sectionCount : curSection + 1))).map((s, i) => (
             <section key={i}>
               <h2 className="mb-2 text-[1.15rem] font-semibold">{s.heading}</h2>
               <Markdown>{s.notes}</Markdown>
@@ -629,6 +646,8 @@ function Summary({
   onCourse,
   onNext,
   nextTitle,
+  test,
+  onTest,
   onSaveNote
 }: {
   steps: Step[]
@@ -637,6 +656,8 @@ function Summary({
   onCourse: () => void
   onNext: (() => void) | null
   nextTitle?: string
+  test: boolean
+  onTest: (() => void) | null
   onSaveNote: () => void
 }) {
   const tally = useMemo(() => {
@@ -649,41 +670,39 @@ function Summary({
     })
     return out
   }, [steps, slots])
-  const pct = tally.check.of ? tally.check.got / tally.check.of : tally.sections.of ? tally.sections.got / tally.sections.of : 1
+  const shown = test ? tally.check : tally.sections
+  const pct = shown.of ? shown.got / shown.of : 1
+  const what = test ? 'Test' : 'Topic'
   return (
     <div className="pop-in mx-auto flex w-full max-w-lg flex-col items-center gap-5 pt-6 text-center">
       <Trophy className="size-8 text-accent" strokeWidth={1.6} />
       <div>
-        <h2 className="text-[2rem] leading-tight font-semibold tracking-tight">{pct >= 0.8 ? 'Topic done. Nice.' : pct >= 0.5 ? 'Topic done.' : 'Topic done. Worth another go.'}</h2>
+        <h2 className="text-[2rem] leading-tight font-semibold tracking-tight">{pct >= 0.8 ? `${what} done. Nice.` : pct >= 0.5 ? `${what} done.` : `${what} done. Worth another go.`}</h2>
         <p className="text-muted">{title}</p>
       </div>
-      <div className="grid w-full grid-cols-2 gap-2.5">
-        {[
-          ['As you went', tally.sections],
-          ['Topic check', tally.check]
-        ].map(([label, t]) => {
-          const v = t as { got: number; of: number }
-          return (
-            <div key={label as string} className="rounded-xl bg-surface-2 p-4">
-              <div className="text-3xl font-semibold">{v.of ? `${Math.round((v.got / v.of) * 100)}%` : '–'}</div>
-              <div className="text-[0.82rem] font-semibold text-muted">
-                {label as string} {v.of ? `· ${v.got}/${v.of}` : ''}
-              </div>
-            </div>
-          )
-        })}
+      <div className="w-full rounded-xl bg-surface-2 p-4">
+        <div className="text-3xl font-semibold">{shown.of ? `${Math.round(pct * 100)}%` : '–'}</div>
+        <div className="text-[0.82rem] font-semibold text-muted">
+          {test ? 'Topic test' : 'As you went'} {shown.of ? `· ${shown.got}/${shown.of}` : ''}
+        </div>
       </div>
+      {onTest && <p className="text-[0.9rem] text-muted">Ready to check it stuck? Take the topic test now, or later from the course page.</p>}
       <p className="text-[0.9rem] text-muted">
         <Sparkles className="mr-1 inline size-4 text-accent" />
         This topic’s recall cards will pop up while you learn other topics, and in spaced review.
       </p>
       <div className="flex flex-wrap justify-center gap-2">
+        {onTest && (
+          <Button variant="primary" onClick={onTest}>
+            <ClipboardCheck className="size-4" /> Take the test
+          </Button>
+        )}
         {onNext && (
-          <Button variant="primary" onClick={onNext}>
+          <Button variant={onTest ? 'outline' : 'primary'} onClick={onNext}>
             Next: {nextTitle} <ArrowRight className="size-4" />
           </Button>
         )}
-        <Button variant={onNext ? 'outline' : 'primary'} onClick={onCourse}>
+        <Button variant={onNext || onTest ? 'outline' : 'primary'} onClick={onCourse}>
           Back to course
         </Button>
         <Button variant="ghost" onClick={onSaveNote}>
