@@ -1,5 +1,8 @@
 // Generated from src/main/ipc.ts handler names (a unit test checks they match).
 export const CHANNELS = [
+  'updates.status',
+  'updates.check',
+  'updates.apply',
   'app.info',
   'app.showDataFolder',
   'app.openExternal',

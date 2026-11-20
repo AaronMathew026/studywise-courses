@@ -29,6 +29,12 @@ Calls run three at a time, time out after 120 seconds (15 minutes for generation
 
 Long jobs (generating notes or cards) run in the main process. Closing the window doesn't stop them, you get a notification when one finishes, and the Jobs page can cancel them.
 
+## Updating
+
+A copy run from its git checkout (`npm run dev` or `npm start`) keeps itself up to date. Shortly after launch and every 30 minutes it runs `git fetch` and compares the branch with GitHub. When there are new commits, a banner under the top bar says how many and lists them. **Update & restart** runs `git pull --ff-only`, then `npm install` if `package.json` or `package-lock.json` changed, then quits and starts the app again with the same npm script. The new run is started from a detached helper, so it carries on after the old terminal session ends; its output goes to `logs/restart.log` in the data folder.
+
+It won't start while a job is running. Uncommitted edits are kept unless they clash with the update, in which case nothing changes and the banner says so. If the branch has its own commits that aren't on GitHub, the banner tells you to merge by hand. **Later** hides the banner until more changes arrive. Installed builds don't show it.
+
 ## Using Ollama instead
 
 Settings → AI provider switches every AI feature between Claude Code and Ollama. Ollama means Ollama Cloud (`https://ollama.com`, with an API key) or your own server (`http://localhost:11434`, which can also run `-cloud` models when you're signed in). The key is encrypted with the OS keychain (DPAPI on Windows), stored in the database as `secret.ollamaKey`, and never sent to the page. `OLLAMA_API_KEY` works too.

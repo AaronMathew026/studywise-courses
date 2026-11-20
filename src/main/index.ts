@@ -12,6 +12,7 @@ import { registerIpc, broadcast, setAfterCall } from './ipc'
 import { buildMenu } from './menu'
 import { loadWindowState, trackWindowState } from './windowState'
 import { onJobEvent, runningJobCount } from './jobs'
+import { startUpdateChecks } from './updater'
 import * as repo from './db/repo'
 import { SUPPORTED_SOURCE_EXT } from './files'
 
@@ -271,6 +272,7 @@ app.whenReady().then(async () => {
 
   createWindow()
   updateBadge()
+  startUpdateChecks((status) => broadcast({ type: 'update', status }))
   setInterval(updateBadge, 60_000)
 
   // Find claude on the login-shell PATH (Finder-launched apps don't get it).

@@ -1,5 +1,6 @@
 import type { StudywiseApi } from '../main/ipc'
 import type { JobInfo, ClaudeStatus, UsageLimits } from '../shared/types'
+import type { UpdateStatus } from '../shared/update'
 
 export type StudywiseEvent =
   | { type: 'ai:delta'; streamId: string; text: string }
@@ -10,6 +11,7 @@ export type StudywiseEvent =
   | { type: 'claude:status'; status: ClaudeStatus }
   | { type: 'fullscreen'; on: boolean }
   | { type: 'usage'; usage: UsageLimits }
+  | { type: 'update'; status: UpdateStatus }
 
 declare global {
   interface Window {
