@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Creates the GitHub release for the current version and uploads the installers.
+# The Intel Mac and Windows builds need @napi-rs/canvas-darwin-x64 and
+# @napi-rs/canvas-win32-x64-msvc in node_modules (npm only installs this Mac's).
 #
 #   GITHUB_TOKEN=... scripts/release.sh
 #
@@ -7,10 +9,10 @@
 # "repo" scope (classic). Build first with: npm run dist && npm run dist:win
 set -euo pipefail
 
-REPO="SnakeLuck360GT/studywise"
+REPO="SnakeLuck360GT/studywise-courses"
 VERSION="v$(node -p "require('./package.json').version")"
 NOTES="docs/release-notes-${VERSION}.md"
-ASSETS=(release/Studywise.dmg release/Studywise-mac.zip release/Studywise-Setup.exe release/Studywise-win-x64.zip)
+ASSETS=(release/Studywise-Courses.dmg release/Studywise-Courses-mac.zip release/Studywise-Courses-Setup.exe release/Studywise-Courses-win-x64.zip)
 
 : "${GITHUB_TOKEN:?Set GITHUB_TOKEN first}"
 for f in "${ASSETS[@]}"; do [ -f "$f" ] || { echo "Missing $f. Run npm run dist and npm run dist:win."; exit 1; }; done
@@ -24,7 +26,7 @@ git push -q origin "$VERSION" 2>/dev/null || true
 # Reuse the release if it already exists, otherwise create it.
 id=$(api "https://api.github.com/repos/$REPO/releases/tags/$VERSION" 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).id||"")}catch{console.log("")}})')
 if [ -z "$id" ]; then
-  body=$(node -e 'const fs=require("fs");console.log(JSON.stringify({tag_name:process.argv[1],name:"Studywise "+process.argv[1].slice(1),body:fs.existsSync(process.argv[2])?fs.readFileSync(process.argv[2],"utf8"):""}))' "$VERSION" "$NOTES")
+  body=$(node -e 'const fs=require("fs");console.log(JSON.stringify({tag_name:process.argv[1],name:"Studywise Courses "+process.argv[1].slice(1),body:fs.existsSync(process.argv[2])?fs.readFileSync(process.argv[2],"utf8"):""}))' "$VERSION" "$NOTES")
   id=$(api -X POST "https://api.github.com/repos/$REPO/releases" -d "$body" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).id))')
   echo "Created release $VERSION ($id)"
 else
