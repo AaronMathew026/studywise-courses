@@ -23,6 +23,7 @@ This step only plans the topics. Don't write any lessons yet.
 - Topics follow the order the course teaches them. If one idea is spread over several lectures, it's still one topic.
 - If a lecture covers three separate ideas, that's three topics. If two lectures say the same thing, that's one topic.
 - Leave out admin: deadlines, coursework logistics, announcements, "can everyone hear me".
+- Leave out anything the material marks as not examinable: parts the slides or the lecturer call non-examinable, not assessed, optional, extra reading, "for interest only" or "won't be on the exam". Don't plan topics or sections for it, and don't include its pages in "where". If you're not sure, keep it.
 
 == READING THE SOURCES ==
 - Transcripts are messy. Skip filler, false starts and tangents, but keep the lecturer's own examples and stories. Those are often the best bits.
@@ -54,7 +55,7 @@ This step only plans the topics. Don't write any lessons yet.
 
 {{outline}}
 
-Write topic {{topic_id}} ("{{topic_title}}"). Only teach what belongs to that topic; the other topics get their own lessons. Use the sections the outline lists for this topic, in that order. You can split one if it's too long for a screen.
+Write topic {{topic_id}} ("{{topic_title}}"). Only teach what belongs to that topic; the other topics get their own lessons. Skip anything in the sources marked as not examinable (non-examinable, not assessed, optional, extra reading, "for interest only", "won't be on the exam"): don't teach it, test it or make cards from it. Use the sections the outline lists for this topic, in that order. You can split one if it's too long for a screen.
 
 == HOW IT WORKS ==
 The topic is a run of short sections. Each section is one screen of notes, followed straight away by 2–4 quick questions on what I just read. A mixed check comes at the end. So it goes: read a bit, answer a bit, read a bit, answer a bit.
@@ -65,9 +66,20 @@ The topic is a run of short sections. Each section is one screen of notes, follo
 - The first section opens with the main idea in 1–3 plain sentences.
 - Read in order, the sections' notes should make one complete page in my note style, so I could paste the whole thing into Notion.
 - "heading" is the section heading; "notes" is Markdown and doesn't repeat the heading.
+- The last section ends with "**Quick exam summary:**" and 3–6 short bullets: the things I must be able to say or do in the exam.
+
+== MAKE IT EASY TO GET ==
+- Assume I've never looked at this topic. Don't rely on anything that hasn't been explained yet, in this topic or an earlier one.
+- Say what something actually means in everyday words first, then give the proper term or formal definition.
+- Say why it matters (what problem it solves, or what goes wrong without it), not just what it is.
+- If the slides have a complicated example, cut it down to the smallest version that shows the point, walk through it step by step, and say what the lesson is. Don't make me memorise implementation details the exam won't ask for.
+- Where two ideas are easy to mix up, give an A vs B table.
+- Flag the usual mistake with "Common mistake:" where there is one.
+- If it builds on an earlier topic in the outline, link back to it in a line ("This is like X from earlier, except…").
+- Simpler never means leaving things out: everything examinable still goes in.
 
 == HOW MY NOTES SOUND ==
-- Plain, casual British English, like explaining it to a friend the night before a quiz. Short sentences. Occasional informal asides are fine ("Sounds good, right?").
+- Plain, casual British English, like explaining it to a friend the night before a quiz. Short sentences.
 - The simplest words that are still accurate. When a technical term first appears, explain it in everyday words straight away.
 - Talk to me as "you", and use "we" for developers ("we let Hypothesis generate inputs").
 - Refer to authors and lecturers by surname ("Thorpe's main argument is…").
@@ -80,7 +92,7 @@ The topic is a run of short sections. Each section is one screen of notes, follo
 - Analogies: "Think of it as…". Links to other CS topics are fine ("It's like a test bench in Verilog").
 - Contrasts: an "X vs Y:" heading and a punchy one-liner ("Cue is the clue, the scent is the judgement.").
 - Processes: numbered short steps.
-- Code: tiny snippets, then a Code | Simple meaning table explaining each line.
+- Code: when the topic is about code, a tiny snippet in the course's language, then a Code | Simple meaning table explaining each line, then one line on what it shows.
 - Callouts, used sparingly: "Remember:", "Notice the difference:", "IMPORTANT CONNECTION:", "The trade off is that:".
 - Get the direction of implication right ("Passing tests is evidence of correctness, not proof").
 - Tables: lots of simple 2–3 column ones (Term | Simple meaning, A vs B, Wrong idea | Correct idea). Where the topic has real pros and cons, include one Benefits | Disadvantages (or Limitations) table; don't force one onto a topic that's just a definition. Keep cells short: phrases, not paragraphs.

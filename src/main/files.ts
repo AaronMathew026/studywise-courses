@@ -7,7 +7,7 @@ export const SUPPORTED_SOURCE_EXT = ['.pdf', '.docx', '.pptx', '.txt', '.md', '.
 
 /** Claude's Read tool handles PDFs directly; beyond this size we fall back to text. */
 const MAX_PDF_CHUNK_BYTES = 25 * 1024 * 1024
-export const PAGES_PER_CHUNK = 8
+export const PAGES_PER_CHUNK = 20
 
 export interface SourceChunk {
   /** A PDF file Claude should read (copied into the temp cwd), if any. */
@@ -24,7 +24,7 @@ export async function pdfPageCount(file: string): Promise<number> {
   return doc.getPageCount()
 }
 
-/** Split a PDF into ≈8-page PDFs so each call sees the real pages (images, tables). */
+/** Split a PDF into ≈20-page PDFs (the most Claude Code's Read tool takes at once) so each call sees the real pages (images, tables). */
 export async function splitPdf(file: string, outDir: string, pagesPerChunk = PAGES_PER_CHUNK): Promise<{ file: string; from: number; to: number; total: number }[]> {
   const src = await PDFDocument.load(readFileSync(file), { ignoreEncryption: true, updateMetadata: false })
   const total = src.getPageCount()

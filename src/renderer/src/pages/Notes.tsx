@@ -8,6 +8,7 @@ import {
   Plus,
   FileText,
   Folder as FolderIcon,
+  ChevronRight,
   FolderPlus,
   Search,
   Sparkles,
@@ -33,6 +34,7 @@ import type { Note, Folder, CustomAction } from '@shared/types'
 import { NOTE_TYPES } from '@shared/types'
 import { useStore, toast } from '../lib/store'
 import { api, onEvent, streamCall, errorText } from '../lib/api'
+import { groupByFolder, useCollapsedFolders, type FolderGroup } from '../lib/collapsed'
 import { useCommands, runCommand } from '../lib/commands'
 import { askText, confirmDialog, chooseDialog } from '../lib/dialogs'
 import { Markdown } from '../components/Markdown'
@@ -85,13 +87,18 @@ export function Notes({ noteId }: { noteId: string | null }) {
     () => notes.filter((n) => (!folderId || n.folder_id === folderId) && `${n.title} ${n.module}`.toLowerCase().includes(q.toLowerCase())),
     [notes, folderId, q]
   )
-  const idx = shown.findIndex((n) => n.id === noteId)
+  // "All notes" groups notes under their folders, which collapse. A filter shows every match.
+  const { isCollapsed, toggle } = useCollapsedFolders()
+  const groups: FolderGroup<NoteMeta>[] = useMemo(() => (!folderId && folders.length ? groupByFolder(shown, folders) : [{ folder: null, items: shown }]), [folderId, folders, shown])
+  const isOpen = (g: FolderGroup<NoteMeta>) => !g.folder || !!q || !isCollapsed(g.folder.id) || g.items.some((n) => n.id === noteId)
+  const visible = groups.flatMap((g) => (isOpen(g) ? g.items : []))
+  const idx = visible.findIndex((n) => n.id === noteId)
   const writing = jobs.find((j) => j.status === 'running' && j.meta?.noteId === noteId)
 
   useCommands(
     {
-      'go.nextDeck': () => shown[idx + 1] && go({ name: 'notes', id: shown[idx + 1].id }),
-      'go.prevDeck': () => idx > 0 && go({ name: 'notes', id: shown[idx - 1].id }),
+      'go.nextDeck': () => visible[idx + 1] && go({ name: 'notes', id: visible[idx + 1].id }),
+      'go.prevDeck': () => idx > 0 && go({ name: 'notes', id: visible[idx - 1].id }),
       'io.importNotes': async () => {
         const ids = await api.io.importNotes({ folderId })
         if (ids.length) {
@@ -101,7 +108,21 @@ export function Notes({ noteId }: { noteId: string | null }) {
         }
       }
     },
-    [shown, idx, folderId]
+    [visible, idx, folderId]
+  )
+
+  const noteRow = (n: NoteMeta, nested: boolean) => (
+    <button
+      key={n.id}
+      onClick={() => go({ name: 'notes', id: n.id })}
+      className={cx('flex flex-col rounded-lg py-2 pr-3 text-left transition-colors duration-200', nested ? 'pl-9' : 'pl-3', n.id === noteId ? 'bg-accent-soft' : 'hover:bg-surface-2')}
+    >
+      <span className="flex items-center gap-1.5 truncate font-semibold">
+        {jobs.some((j) => j.status === 'running' && j.meta?.noteId === n.id) && <span className="pulse-dot size-2 shrink-0 rounded-full bg-accent" />}
+        <span className="truncate">{n.title}</span>
+      </span>
+      <span className="truncate text-[0.78rem] text-muted">{[n.module, n.type, n.week && `Week ${n.week}`].filter(Boolean).join(' · ') || new Date(n.updated_at).toLocaleDateString()}</span>
+    </button>
   )
 
   return (
@@ -160,19 +181,26 @@ export function Notes({ noteId }: { noteId: string | null }) {
           ))}
           <div className="mx-2 my-2 border-t border-line" />
           <div className="stagger flex flex-col gap-0.5">
-            {shown.map((n) => (
-              <button
-                key={n.id}
-                onClick={() => go({ name: 'notes', id: n.id })}
-                className={cx('flex flex-col rounded-lg px-3 py-2 text-left transition-colors duration-200', n.id === noteId ? 'bg-accent-soft' : 'hover:bg-surface-2')}
-              >
-                <span className="flex items-center gap-1.5 truncate font-semibold">
-                  {jobs.some((j) => j.status === 'running' && j.meta?.noteId === n.id) && <span className="pulse-dot size-2 shrink-0 rounded-full bg-accent" />}
-                  <span className="truncate">{n.title}</span>
-                </span>
-                <span className="truncate text-[0.78rem] text-muted">{[n.module, n.type, n.week && `Week ${n.week}`].filter(Boolean).join(' · ') || new Date(n.updated_at).toLocaleDateString()}</span>
-              </button>
-            ))}
+            {groups.map((g) => {
+              const open = isOpen(g)
+              return (
+                <div key={g.folder?.id ?? 'loose'} className="flex flex-col gap-0.5">
+                  {g.folder && (
+                    <button
+                      onClick={() => toggle(g.folder!.id)}
+                      aria-expanded={open}
+                      className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[0.86rem] font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+                    >
+                      <ChevronRight className={cx('size-3.5 shrink-0 transition-transform duration-200', open && 'rotate-90')} />
+                      <FolderIcon className="size-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{g.folder.name}</span>
+                      <span className="text-[0.78rem] font-normal">{g.items.length}</span>
+                    </button>
+                  )}
+                  {open && g.items.map((n) => noteRow(n, !!g.folder))}
+                </div>
+              )
+            })}
           </div>
         </div>
       </aside>

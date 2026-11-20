@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { keyLabel } from '@shared/keymap'
-import { Folder as FolderIcon, FolderPlus, Plus, Layers, MoreHorizontal, Upload, Search, Trash2, Pencil, FolderInput } from 'lucide-react'
+import { Folder as FolderIcon, FolderPlus, Layers, MoreHorizontal, Search, Trash2, Pencil, ChevronRight } from 'lucide-react'
 import type { Deck, Folder } from '@shared/types'
 import { useStore, toast } from '../lib/store'
 import { api, errorText } from '../lib/api'
 import { runCommand, useCommands } from '../lib/commands'
 import { askText, confirmDialog, chooseDialog } from '../lib/dialogs'
+import { groupByFolder, useCollapsedFolders, type FolderGroup } from '../lib/collapsed'
 import { Shell, PageTitle } from '../components/Shell'
 import { Button, Card, Empty, Input, Menu, MenuItem, Pill, ProgressBar, cx } from '../components/ui'
 
@@ -31,6 +32,13 @@ export function Decks({ folderId }: { folderId: string | null }) {
   )
   const folder = folders.find((f) => f.id === folderId)
 
+  // "All" groups decks under their folders, which collapse. A filter shows every match.
+  const { isCollapsed, toggle } = useCollapsedFolders()
+  const groups: FolderGroup<DeckRow>[] = useMemo(() => (!folderId && folders.length ? groupByFolder(shown, folders) : [{ folder: null, items: shown }]), [folderId, folders, shown])
+  const isOpen = (g: FolderGroup<DeckRow>) => !g.folder || !!q || !isCollapsed(g.folder.id)
+  const visible = groups.flatMap((g) => (isOpen(g) ? g.items : []))
+  const visibleIndex = new Map(visible.map((d, i) => [d.id, i]))
+
   const renameDeck = async (d: DeckRow) => {
     const name = await askText('Rename deck', { initial: d.name, confirmText: 'Rename' })
     if (name) await api.decks.update({ id: d.id, patch: { name } }).then(load)
@@ -47,17 +55,52 @@ export function Decks({ folderId }: { folderId: string | null }) {
     }
   }
 
+  const deckRow = (d: DeckRow, i: number, nested: boolean) => (
+    <div
+      key={d.id}
+      onClick={() => go({ name: 'deck', id: d.id })}
+      className={cx(
+        '-mx-3 grid cursor-pointer grid-cols-[1fr_90px_70px_120px_36px] items-center gap-4 rounded-md border-t border-line px-3 py-2.5 transition-colors hover:bg-surface-2/70 max-sm:grid-cols-[1fr_70px_36px]',
+        i === sel && 'bg-accent-soft/60'
+      )}
+    >
+      <span className={cx('min-w-0 truncate font-medium', nested && 'pl-12')}>{d.name}</span>
+      <span className="tabular text-right text-muted max-sm:hidden">{d.card_count}</span>
+      <span className={cx('tabular text-right', d.due_count ? 'text-accent' : 'text-muted/60')}>{d.due_count || '—'}</span>
+      <ProgressBar value={d.card_count ? 1 - d.due_count / d.card_count : 0} className="h-1 max-sm:hidden" />
+      <div onClick={(e) => e.stopPropagation()} className="flex justify-end">
+        <Menu
+          trigger={(toggle) => (
+            <Button variant="ghost" size="icon" onClick={toggle} aria-label="Deck menu">
+              <MoreHorizontal className="size-4" />
+            </Button>
+          )}
+        >
+          {(close) => (
+            <>
+              <MenuItem onClick={() => (close(), renameDeck(d))}>Rename</MenuItem>
+              <MenuItem onClick={() => (close(), moveDeck(d))}>Move to folder</MenuItem>
+              <MenuItem danger onClick={() => (close(), deleteDeck(d))}>
+                Delete
+              </MenuItem>
+            </>
+          )}
+        </Menu>
+      </div>
+    </div>
+  )
+
   useCommands(
     {
-      'list.down': () => setSel((s) => Math.min(shown.length - 1, s + 1)),
+      'list.down': () => setSel((s) => Math.min(visible.length - 1, s + 1)),
       'list.up': () => setSel((s) => Math.max(0, s - 1)),
-      'list.open': () => shown[sel] && go({ name: 'deck', id: shown[sel].id }),
-      'item.rename': () => shown[sel] && renameDeck(shown[sel]),
-      'list.delete': () => shown[sel] && deleteDeck(shown[sel]),
-      'go.nextDeck': () => setSel((s) => Math.min(shown.length - 1, s + 1)),
+      'list.open': () => visible[sel] && go({ name: 'deck', id: visible[sel].id }),
+      'item.rename': () => visible[sel] && renameDeck(visible[sel]),
+      'list.delete': () => visible[sel] && deleteDeck(visible[sel]),
+      'go.nextDeck': () => setSel((s) => Math.min(visible.length - 1, s + 1)),
       'go.prevDeck': () => setSel((s) => Math.max(0, s - 1))
     },
-    [shown, sel]
+    [visible, sel]
   )
 
   return (
@@ -130,40 +173,33 @@ export function Decks({ folderId }: { folderId: string | null }) {
               <span className="max-sm:hidden">Progress</span>
               <span />
             </div>
-            {shown.map((d, i) => (
-              <div
-                key={d.id}
-                onClick={() => go({ name: 'deck', id: d.id })}
-                className={cx(
-                  '-mx-3 grid cursor-pointer grid-cols-[1fr_90px_70px_120px_36px] items-center gap-4 rounded-md border-t border-line px-3 py-2.5 transition-colors hover:bg-surface-2/70 max-sm:grid-cols-[1fr_70px_36px]',
-                  i === sel && 'bg-accent-soft/60'
-                )}
-              >
-                <span className="min-w-0 truncate font-medium">{d.name}</span>
-                <span className="tabular text-right text-muted max-sm:hidden">{d.card_count}</span>
-                <span className={cx('tabular text-right', d.due_count ? 'text-accent' : 'text-muted/60')}>{d.due_count || '—'}</span>
-                <ProgressBar value={d.card_count ? 1 - d.due_count / d.card_count : 0} className="h-1 max-sm:hidden" />
-                <div onClick={(e) => e.stopPropagation()} className="flex justify-end">
-                  <Menu
-                    trigger={(toggle) => (
-                      <Button variant="ghost" size="icon" onClick={toggle} aria-label="Deck menu">
-                        <MoreHorizontal className="size-4" />
-                      </Button>
-                    )}
-                  >
-                    {(close) => (
-                      <>
-                        <MenuItem onClick={() => (close(), renameDeck(d))}>Rename</MenuItem>
-                        <MenuItem onClick={() => (close(), moveDeck(d))}>Move to folder</MenuItem>
-                        <MenuItem danger onClick={() => (close(), deleteDeck(d))}>
-                          Delete
-                        </MenuItem>
-                      </>
-                    )}
-                  </Menu>
+            {groups.map((g) => {
+              const open = isOpen(g)
+              const due = g.items.reduce((n, d) => n + d.due_count, 0)
+              return (
+                <div key={g.folder?.id ?? 'loose'}>
+                  {g.folder && (
+                    <button
+                      onClick={() => toggle(g.folder!.id)}
+                      aria-expanded={open}
+                      className="-mx-3 grid w-[calc(100%+1.5rem)] grid-cols-[1fr_90px_70px_120px_36px] items-center gap-4 rounded-md border-t border-line px-3 py-2.5 text-left transition-colors hover:bg-surface-2/70 max-sm:grid-cols-[1fr_70px_36px]"
+                    >
+                      <span className="flex min-w-0 items-center gap-2 font-semibold">
+                        <ChevronRight className={cx('size-4 shrink-0 text-muted transition-transform duration-200', open && 'rotate-90')} />
+                        <FolderIcon className="size-4 shrink-0 text-muted" />
+                        <span className="truncate">{g.folder.name}</span>
+                        <span className="tabular text-[0.82rem] font-normal text-muted">{g.items.length}</span>
+                      </span>
+                      <span className="max-sm:hidden" />
+                      <span className={cx('tabular text-right', due ? 'text-accent' : 'text-muted/60')}>{due || '—'}</span>
+                      <span className="max-sm:hidden" />
+                      <span />
+                    </button>
+                  )}
+                  {open && g.items.map((d) => deckRow(d, visibleIndex.get(d.id) ?? -1, !!g.folder))}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </Shell>

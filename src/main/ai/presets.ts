@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { getDb, uid, now, json } from '../db'
+import { getSetting, setSetting } from '../db/repo'
 import type { Preset, PresetVersion, CustomAction } from '@shared/types'
 import { CustomAction as CustomActionSchema, OutputMode } from '@shared/types'
 import { TASKS, TASK_INFO, type TaskId } from '@shared/tasks'
@@ -8,21 +10,44 @@ import { SEED_PRESETS, SEED_ACTIONS } from './prompts'
 type PresetRow = Omit<Preset, 'is_default'> & { is_default: number }
 const toPreset = (r: PresetRow): Preset => ({ ...r, is_default: !!r.is_default })
 
-/** Insert any built-in presets/actions that are missing. Never overwrites edits. */
+/** Settings key: builtin_key → hash of the prompt text the app last wrote, to tell untouched built-ins from edited ones. */
+const SEEDED_KEY = 'presets.seeded'
+const textHash = (p: { system: string; user_template: string }) => createHash('sha256').update(`${p.system}\u0000${p.user_template}`).digest('hex')
+
+function markSeeded(key: string, p: { system: string; user_template: string }): void {
+  setSetting(SEEDED_KEY, { ...getSetting<Record<string, string>>(SEEDED_KEY, {}), [key]: textHash(p) })
+}
+
+/**
+ * Insert any built-in presets/actions that are missing, and bring built-in
+ * prompts you haven't edited up to date with the app's. Never overwrites edits.
+ */
 export function seedPresets(): void {
   const d = getDb()
-  const has = d.prepare('SELECT id FROM presets WHERE builtin_key = ?')
+  const has = d.prepare('SELECT * FROM presets WHERE builtin_key = ?')
   const ins = d.prepare(
     `INSERT INTO presets (id, task, name, builtin_key, output_mode, system, user_template, version, is_default, updated_at)
      VALUES (@id, @task, @name, @builtin_key, @output_mode, @system, @user_template, 1, @is_default, @updated_at)`
   )
   const anyDefault = d.prepare('SELECT 1 FROM presets WHERE task = ? AND is_default = 1')
   d.transaction(() => {
+    const seeded = getSetting<Record<string, string>>(SEEDED_KEY, {})
     for (const p of SEED_PRESETS) {
-      if (has.get(p.builtin_key)) continue
-      const isDefault = p.is_default && !anyDefault.get(p.task)
-      ins.run({ ...p, id: uid(), is_default: isDefault ? 1 : 0, updated_at: now() })
+      const cur = has.get(p.builtin_key) as PresetRow | undefined
+      if (!cur) {
+        const isDefault = p.is_default && !anyDefault.get(p.task)
+        ins.run({ ...p, id: uid(), is_default: isDefault ? 1 : 0, updated_at: now() })
+        seeded[p.builtin_key] = textHash(p)
+        continue
+      }
+      // Untouched: the text is what the app last wrote (or, before that was
+      // tracked, it has never been edited).
+      const untouched = seeded[p.builtin_key] ? seeded[p.builtin_key] === textHash(cur) : cur.version === 1
+      if (!untouched) continue
+      if (textHash(cur) !== textHash(p)) updatePreset(cur.id, { system: p.system, user_template: p.user_template })
+      seeded[p.builtin_key] = textHash(p)
     }
+    setSetting(SEEDED_KEY, seeded)
     const hasAction = d.prepare('SELECT id FROM custom_actions WHERE builtin_key = ?')
     const insAction = d.prepare(
       'INSERT INTO custom_actions (id, name, icon, prompt, model, output, placements, builtin_key, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -116,7 +141,10 @@ export function resetPreset(id: string): Preset {
   const p = getPreset(id)
   const seed = SEED_PRESETS.find((s) => s.builtin_key === p.builtin_key)
   if (!seed) throw new Error('Only built-in presets can be reset')
-  return updatePreset(id, { name: seed.name, system: seed.system, user_template: seed.user_template, output_mode: seed.output_mode })
+  const out = updatePreset(id, { name: seed.name, system: seed.system, user_template: seed.user_template, output_mode: seed.output_mode })
+  // A reset prompt follows the app's built-in text again on later updates.
+  markSeeded(seed.builtin_key, seed)
+  return out
 }
 
 export function presetVersions(id: string): PresetVersion[] {

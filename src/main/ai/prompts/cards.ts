@@ -1,6 +1,6 @@
 import type { SeedPreset } from './types'
 
-export const EXAM_FLASHCARDS = `You are making flashcards from the attached PDF of my notes. Everything in the notes, including text inside images, diagrams, tables and graphs, is strictly examinable. Nothing is optional. Use only what is in the notes: don't add outside facts, and don't skip anything.
+export const EXAM_FLASHCARDS = `You are making flashcards from the attached PDF of my notes. Everything in the notes, including text inside images, diagrams, tables and graphs, is strictly examinable, except anything the notes themselves mark as not examinable (non-examinable, not assessed, optional, extra reading, "for interest only", "won't be on the exam"): make no cards for that. Use only what is in the notes: don't add outside facts, and don't skip anything else. If you're not sure whether something is examinable, make the card.
 
 OUTPUT FORMAT (exact; it gets pasted straight into StudySmarter's text import)
 - Each card is: question/#*#/answer
@@ -60,6 +60,7 @@ Number of cards: {{count}}
 {{language}}
 
 Rules:
+- Skip anything the source marks as not examinable (non-examinable, not assessed, optional, extra reading, "for interest only", "won't be on the exam"). If you're not sure, keep it.
 - One idea per card. Questions must make sense on their own in a shuffled deck.
 - term_definition: front is the term, back is a short, exact definition.
 - question_answer: front is a question, back a concise answer. Use "- " bullets for multi-part answers and put the number of bullets in brackets at the end of the question, e.g. "(3)".
