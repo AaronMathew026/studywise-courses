@@ -593,6 +593,11 @@ function topicCardIds(courseId: string, topicId: string): string[] {
   ).map((r) => r.id)
 }
 
+/** The cards Claude tied to a section (1-based), trimmed and non-empty. */
+export function sectionCards(cards: AiTopic['cards'], section: number): { front: string; back: string }[] {
+  return cards.filter((c) => c.section === section && c.front.trim() && c.back.trim()).map((c) => ({ front: c.front.trim(), back: c.back.trim() }))
+}
+
 export async function writeTopic(topicId: string, ctx: JobContext, instructions = ''): Promise<{ topicId: string; sections: number; cards: number }> {
   const topic = getTopic(topicId)
   const course = courseRow(topic.course_id)
@@ -630,8 +635,9 @@ export async function writeTopic(topicId: string, ctx: JobContext, instructions 
       title: ai.title || topic.plan.title,
       goal: ai.goal || topic.plan.goal,
       sections: ai.sections
-        .filter((s) => s.heading.trim() || s.notes.trim())
-        .map((s) => ({ heading: s.heading.trim(), notes: s.notes.trim(), figure: mapFigure(s.figure, src.attached), questions: sanitizeQuestions(s.questions) })),
+        .map((s, i) => ({ s, cards: sectionCards(ai.cards, i + 1) }))
+        .filter(({ s }) => s.heading.trim() || s.notes.trim())
+        .map(({ s, cards }) => ({ heading: s.heading.trim(), notes: s.notes.trim(), figure: mapFigure(s.figure, src.attached), cards, questions: sanitizeQuestions(s.questions) })),
       check: sanitizeQuestions(ai.check)
     }
     if (!content.sections.length) throw new Error('Claude returned a topic with no sections.')

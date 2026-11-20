@@ -26,6 +26,8 @@ const RECALL_CHANCE = 0.25
 
 type Step =
   | { kind: 'notes'; section: number }
+  /** The section's flashcards, between its notes and its questions. */
+  | { kind: 'cards'; section: number }
   // section -1 = topic check; retry counts how many times it's come back
   | { kind: 'q'; section: number; index: number; q: CourseQuestion; retry?: number }
   | { kind: 'recall'; after: number }
@@ -47,6 +49,7 @@ function buildSteps(t: Topic): Step[] {
   const steps: Step[] = []
   c.sections.forEach((s, i) => {
     steps.push({ kind: 'notes', section: i })
+    if (s.cards?.length) steps.push({ kind: 'cards', section: i })
     s.questions.forEach((q, j) => steps.push({ kind: 'q', section: i, index: j, q }))
     // Never two recall cards in a row: there's always a section between them.
     if (i < c.sections.length - 1 && Math.random() < RECALL_CHANCE) steps.push({ kind: 'recall', after: i })
@@ -237,7 +240,7 @@ export function TopicPage({ id }: { id: string }) {
   if (!topic?.content || !step) return null
   const content = topic.content
   const sectionCount = content.sections.length
-  const curSection = step.kind === 'notes' || step.kind === 'q' ? step.section : step.kind === 'recall' ? step.after : sectionCount
+  const curSection = step.kind === 'notes' || step.kind === 'cards' || step.kind === 'q' ? step.section : step.kind === 'recall' ? step.after : sectionCount
   const inCheck = step.kind === 'check_intro' || (step.kind === 'q' && step.section === -1)
   const idx = siblings.findIndex((t) => t.id === topic.id)
   const nextTopic = siblings.slice(idx + 1).find((t) => t.status === 'ready' && !t.progress.done)
@@ -271,6 +274,8 @@ export function TopicPage({ id }: { id: string }) {
 
       <div className="mx-auto mt-7 w-full max-w-[860px] flex-1">
         {step.kind === 'notes' && <NotesStep key={at} section={content.sections[step.section]} first={step.section === 0} goal={content.goal} onNext={next} onAsk={() => askAbout(content.sections[step.section])} />}
+
+        {step.kind === 'cards' && <CardsStep key={at} cards={content.sections[step.section].cards ?? []} onNext={next} />}
 
         {step.kind === 'recall' && <RecallStep key={at} courseId={topic.course_id} topicId={topic.id} onNext={next} />}
 
@@ -481,6 +486,62 @@ function NotesStep({ section, first, goal, onNext, onAsk }: { section: TopicSect
           <img src={img} alt={section.figure?.caption ?? ''} className="mx-auto max-h-full rounded-lg bg-white" />
         </Modal>
       )}
+    </div>
+  )
+}
+
+/** The section's key terms as flip cards, so you know them before the questions. Space or ↩ flips, then ↩ moves on. */
+function CardsStep({ cards, onNext }: { cards: { front: string; back: string }[]; onNext: () => void }) {
+  const [i, setI] = useState(0)
+  const [flipped, setFlipped] = useState(false)
+  const card = cards[i]
+  const last = i >= cards.length - 1
+  const advance = () => {
+    if (!flipped) return setFlipped(true)
+    if (last) return onNext()
+    setI(i + 1)
+    setFlipped(false)
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement
+      if (e.metaKey || e.ctrlKey || e.altKey || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || document.querySelector('[data-modal]')) return
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        advance()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+  if (!card) return null
+  return (
+    <div className="pop-in flex flex-col gap-5">
+      <div className="flex items-center gap-2 text-[0.85rem] text-muted">
+        <Pill tone="accent">Key terms</Pill>
+        <span>
+          Card {i + 1} of {cards.length}
+        </span>
+      </div>
+      {/* A div, not a button: a focused button would also react to the ↩/Space that the page handles. */}
+      <div
+        role="button"
+        onClick={() => setFlipped((f) => !f)}
+        className="flex min-h-[220px] cursor-pointer flex-col items-stretch rounded-xl border border-line bg-surface p-[clamp(18px,3.4vw,36px)] text-left transition-colors hover:border-[color-mix(in_oklab,var(--ink)_22%,transparent)]"
+        title={flipped ? 'Show the front' : 'Show the answer'}
+      >
+        <Markdown className="text-[clamp(1.2rem,2.4vw,1.6rem)] leading-snug font-semibold">{card.front}</Markdown>
+        {flipped ? (
+          <div className="pop-in mt-5 border-t border-line pt-5">
+            <Markdown className="text-[1.05rem] leading-relaxed">{card.back}</Markdown>
+          </div>
+        ) : (
+          <span className="mt-auto pt-6 text-[0.9rem] text-muted">Think of the answer, then tap to check</span>
+        )}
+      </div>
+      <Button variant="primary" size="lg" className="self-start" onClick={advance}>
+        {!flipped ? 'Show answer' : last ? 'On to the questions' : 'Next card'} <ArrowRight className="size-4" /> <Kbd className="ml-1 border-current/30">↩</Kbd>
+      </Button>
     </div>
   )
 }

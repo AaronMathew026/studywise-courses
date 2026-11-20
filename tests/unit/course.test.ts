@@ -169,6 +169,13 @@ describe('course service (mock AI)', () => {
     const types = new Set(t2.content!.sections.flatMap((s) => s.questions.map((q) => q.type)))
     expect(types.size).toBe(8)
 
+    // Each section keeps the flashcards Claude tied to it, shown before its questions.
+    expect(t2.content!.sections.map((s) => (s.cards ?? []).map((c) => c.front))).toEqual([
+      ['What is a photoelectron?'],
+      ['What is the work function?', 'What is the threshold frequency?'],
+      ['Does brighter light give faster photoelectrons?']
+    ])
+
     // No recall until another topic has been started.
     await svc.writeTopic(topics[0].id, ctx())
     expect(svc.recallCard(course.id, topics[0].id)).toBeNull()
