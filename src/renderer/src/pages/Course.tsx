@@ -50,10 +50,17 @@ export function CoursePage({ id }: { id: string }) {
     if (name) await api.courses.rename({ id, name }).then(load)
   }
   const del = async () => {
-    if (!(await confirmDialog(`Delete ${c.name}?`, 'All weeks, topics, figures and copies of your files go. The recall-card deck goes too.', { confirmText: 'Delete', danger: true }))) return
+    if (!(await confirmDialog(`Delete ${c.name}?`, 'All weeks, topics, figures and copies of your files go. Its flashcard folder and week decks go too.', { confirmText: 'Delete', danger: true }))) return
     await api.courses.delete({ id, keepDeck: false })
     useStore.getState().bump()
     go({ name: 'courses' })
+  }
+
+  // Course-wide Models & instructions, shared by every week deck.
+  const openAiSettings = async () => {
+    const s = await api.courses.deckSettings({ courseId: c.id })
+    const t = new Date().toISOString()
+    setAiDeck({ id: '', folder_id: c.deck_folder_id, name: c.name, description: '', learn_settings: null, created_at: t, updated_at: t, ...s })
   }
 
   const unwritten = topics.filter((t) => t.status === 'planned' || t.status === 'error')
@@ -82,8 +89,8 @@ export function CoursePage({ id }: { id: string }) {
                 <Sparkles className="size-4" /> Write {unwritten.length} topic{unwritten.length === 1 ? '' : 's'}
               </Button>
             )}
-            {c.deck_id && topics.some((t) => t.card_count > 0) && (
-              <Button variant="outline" onClick={() => go({ name: 'flashcards', deckId: c.deck_id!, mode: 'due' })}>
+            {topics.some((t) => t.card_count > 0) && (
+              <Button variant="outline" onClick={() => go({ name: 'flashcards', deckId: '', mode: 'due', courseId: c.id })} title="Due cards from every week">
                 <Layers className="size-4" /> Recall cards
               </Button>
             )}
@@ -99,17 +106,15 @@ export function CoursePage({ id }: { id: string }) {
                   <MenuItem icon={<Plus className="size-4" />} onClick={() => (close(), setAdding(true))}>
                     Add a week
                   </MenuItem>
-                  {c.deck_id && (
-                    <MenuItem icon={<SlidersHorizontal className="size-4" />} onClick={() => (close(), void api.decks.get({ id: c.deck_id! }).then(setAiDeck))}>
-                      Models &amp; instructions
-                    </MenuItem>
-                  )}
+                  <MenuItem icon={<SlidersHorizontal className="size-4" />} onClick={() => (close(), void openAiSettings())}>
+                    Models &amp; instructions
+                  </MenuItem>
                   <MenuItem icon={<Pencil className="size-4" />} onClick={() => (close(), void rename())}>
                     Rename course
                   </MenuItem>
-                  {c.deck_id && (
-                    <MenuItem icon={<Layers className="size-4" />} onClick={() => (close(), go({ name: 'deck', id: c.deck_id! }))}>
-                      Open card deck
+                  {c.deck_folder_id && (
+                    <MenuItem icon={<Layers className="size-4" />} onClick={() => (close(), go({ name: 'decks', folderId: c.deck_folder_id }))}>
+                      Open flashcard folder
                     </MenuItem>
                   )}
                   <MenuItem danger icon={<Trash2 className="size-4" />} onClick={() => (close(), void del())}>
@@ -142,7 +147,7 @@ export function CoursePage({ id }: { id: string }) {
         <Plus className="size-5" /> Add {c.weeks.length ? 'next week' : 'the first week'}
       </button>
 
-      {aiDeck && <DeckSettings deck={aiDeck} onClose={() => setAiDeck(null)} onSaved={() => setAiDeck(null)} />}
+      {aiDeck && <DeckSettings deck={aiDeck} courseId={c.id} onClose={() => setAiDeck(null)} onSaved={() => setAiDeck(null)} />}
 
       {adding && (
         <AddWeekModal
@@ -234,6 +239,11 @@ function WeekSection({ week: w, reload, write }: { week: WeekFull; reload: () =>
               {w.files.length > 0 && !planning && (
                 <MenuItem icon={<RefreshCw className="size-4" />} onClick={() => (close(), void plan())}>
                   {w.topics.length ? 'Plan again' : 'Plan topics'}
+                </MenuItem>
+              )}
+              {w.deck_id && (
+                <MenuItem icon={<Layers className="size-4" />} onClick={() => (close(), go({ name: 'deck', id: w.deck_id! }))}>
+                  This week’s flashcards
                 </MenuItem>
               )}
               <MenuItem icon={<Pencil className="size-4" />} onClick={() => (close(), void rename())}>

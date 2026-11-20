@@ -241,6 +241,10 @@ export const MIGRATIONS: string[] = [
   /* 4: topics keep their notes as a note, in a folder per course */ `
   ALTER TABLE topics ADD COLUMN note_id TEXT REFERENCES notes(id) ON DELETE SET NULL;
   ALTER TABLE courses ADD COLUMN note_folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL;
+  `,
+  /* 5: each course gets a deck folder, with a deck per week */ `
+  ALTER TABLE courses ADD COLUMN deck_folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL;
+  ALTER TABLE weeks ADD COLUMN deck_id TEXT REFERENCES decks(id) ON DELETE SET NULL;
   `
 ]
 

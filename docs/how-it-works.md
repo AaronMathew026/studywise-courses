@@ -6,9 +6,11 @@ A course is a run of weeks, and each week has its own files (PDF slides, transcr
 
 **Planning a week.** The week's files are read as text (PDFs with `[page N]` markers; scanned PDFs are sent as files instead) and sent with the outline prompt, along with the topics earlier weeks already have. Over about 300k characters, the week is planned one file at a time and the results are merged by title. Topics get course-wide ids like `w2t3`. Planning a week again replaces its topics.
 
-**Writing a topic.** Only the topic's own week's files are sent, and PDFs are cut down to the pages in the outline's `sources` (a short PDF with no page range goes whole). Figures come back as a page in that excerpt and are mapped to the original page, then rendered to a PNG with pdf.js and cached. Questions that can't be asked as written are dropped. Recall cards go into the course's deck (one per course), tagged with the topic, replacing that topic's old cards.
+**Writing a topic.** Only the topic's own week's files are sent, and PDFs are cut down to the pages in the outline's `sources` (a short PDF with no page range goes whole). Figures come back as a page in that excerpt and are mapped to the original page, then rendered to a PNG with pdf.js and cached. Questions that can't be asked as written are dropped. Recall cards go into that week's deck, tagged with the topic, replacing that topic's old cards.
 
-**Learning.** Each section shows its notes, then its questions; after the last section comes the topic check. Multiple choice, true/false, fill in the blank (with alternatives), spot the wrong word, put in order, match and sort are marked in code; "in your own words" answers are marked by Claude out of 10. "I was right" overrides any mark. Progress is saved at each section, so you can leave and come back. After a section there's a 1 in 4 chance of a recall card from another topic you've started, due cards first; your answer goes into spaced repetition.
+**Flashcards by week.** Making a course makes a folder for it in Decks, and every week gets its own deck there ("Physics 101 · Week 1"), so the cards are grouped the way the course is. Renaming the course or a week renames the folder and decks; deleting a week deletes its deck. Recall cards on the course page reviews what's due across all its weeks, and each week's ⋯ menu opens its own deck. Course → ⋯ → Models & instructions applies to every week deck at once, and new weeks pick it up. Courses made before this had one deck for everything: on startup their cards move into week decks (with their review history), and any cards you added yourself stay in a "· Other cards" deck in the same folder.
+
+**Learning.** Each section shows its notes, then its questions; after the last section comes the topic check. Multiple choice, true/false, fill in the blank (with alternatives), spot the wrong word, put in order, match and sort are marked in code; "in your own words" answers are marked by Claude out of 10. "I was right" overrides any mark. Progress is saved at each section, so you can leave and come back. After a section there's a 1 in 4 chance of a recall card from another topic you've started, due cards first; your answer goes into spaced repetition. A question you get wrong (or only partly right) comes back three steps later, marked "Try again", and keeps coming back until you get it right; only your first try counts towards the topic's score.
 
 **Models.** The three course tasks are in Settings → Models like every other task (any model name, any effort). Course → ⋯ → Models & instructions overrides them for one course and adds extra instructions to its prompts.
 
@@ -49,7 +51,7 @@ Cards come back in the StudySmarter text format (below). If a reply gets cut off
 
 Each card becomes one of eight question types: Read & understand, Multiple choice, Free answer, True or false, Match pairs, Categorize, Fill in the blank and Choice blank. Blanks come from `___` in cloze cards or **bold** words in an answer. Questions are made eight cards per call when the session starts, the next batch is fetched ahead of time, and each question is cached per card and type until the card or prompt changes.
 
-Multiple choice, true/false, match pairs, categorize and choice blank are marked in code. Free answers are scored out of 10 by Claude against the card, with credit per required point (8+ correct, 4–7 partly right, 3 or less wrong; you can change these). Fill in the blank checks for an exact match first and only asks Claude about the blanks that don't match. Every result can be overridden with "I was right".
+Multiple choice, true/false, match pairs, categorize and choice blank are marked in code. Free answers are scored out of 10 by Claude against the card, with credit per required point (8+ correct, 4–7 partly right, 3 or less wrong; you can change these). Fill in the blank checks for an exact match first and only asks Claude about the blanks that don't match. Every result can be overridden with "I was right". A question you get wrong comes back three questions later, marked "Try again", and keeps coming back until it's right (Skip moves on without it). The retry is marked as normal but doesn't change the schedule or the session's score, since your first answer already did.
 
 After an answer, **Get feedback** (or `w`) writes why yours was wrong, the key takeaways and a way to remember it. Nothing is generated until you press it. Hints come from the card first, then Claude, two at most, and never give away the answer.
 
@@ -73,7 +75,7 @@ Two schedulers, switchable in Settings → General.
 
 **SM-2**: ease starts at 2.5, intervals go 1, 6, then interval × ease.
 
-Flashcard mode uses Again / Hard / Good / Easy, Learn results feed the same schedule, and the Dock badge shows how many cards are due today.
+Flashcard mode uses Again / Hard / Good / Easy, Learn results feed the same schedule, and the Dock badge shows how many cards are due today. A card you mark Again comes back three cards later in the same session, and again each time, until you know it.
 
 ## Import and export
 
@@ -103,6 +105,8 @@ There are a lot. `?` lists them all and `⌘K` searches everything. The main one
 ## Your data
 
 Everything is in `~/Library/Application Support/Studywise/` (on Windows, `%APPDATA%\Studywise`): the SQLite database, pasted images, a cache and logs. Settings → General can open the folder, back the whole library up to a zip, and restore it (the old database is kept alongside).
+
+**Moving to another computer.** Settings → General → Move to another computer exports everything to one `.studywise` file that works on Mac and Windows: decks, cards, notes, folders, courses with their copied files and figures, pasted images, prompts and custom actions. Progress (review history, due dates, where you are in each topic) only goes in if you tick "Include my progress". Importing (the same card, or dropping the file on the window) adds to the library that's there and never replaces anything; everything gets new ids, so importing twice gives two copies rather than a clash. Settings and API keys stay behind. Inside, it's a zip of `library.json`, `attachments/` and `courses/<id>/`, with course file paths stored relative to the course and file names made safe for both systems.
 
 ## Environment variables
 

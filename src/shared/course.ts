@@ -148,6 +148,8 @@ export interface Week {
   label: string
   status: WeekStatus
   error: string | null
+  /** This week's recall-card deck, in the course's folder. */
+  deck_id: string | null
   created_at: string
 }
 
@@ -161,7 +163,10 @@ export interface Course {
   name: string
   module: string
   level: string
+  /** Old single recall deck. New courses keep their cards in a deck per week instead. */
   deck_id: string | null
+  /** The course's folder in Decks, holding one deck per week. */
+  deck_folder_id: string | null
   created_at: string
   updated_at: string
 }

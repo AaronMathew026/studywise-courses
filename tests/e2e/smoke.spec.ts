@@ -63,7 +63,8 @@ test('create a deck, add cards, and finish a Learn session', async () => {
   await expect(win.getByText(/\d+ \/ \d+/).first()).toBeVisible()
 
   let feedbackSeen = 0
-  for (let i = 0; i < 40; i++) {
+  let retriesSeen = 0
+  for (let i = 0; i < 60; i++) {
     if (await win.getByText(/Great session|Nice work|Good practice/).isVisible()) break
     // Wait for a question or the result.
     await win.getByText('Writing questions').waitFor({ state: 'detached', timeout: 15000 }).catch(() => {})
@@ -73,6 +74,12 @@ test('create a deck, add cards, and finish a Learn session', async () => {
     const cont = win.getByRole('button', { name: /^Continue/ })
     if (await cont.isVisible()) {
       await cont.click()
+      continue
+    }
+    // Missed questions come back until they're right; this test answers blind, so it skips them.
+    if (await win.getByText('Try again', { exact: true }).isVisible()) {
+      retriesSeen++
+      await win.getByRole('button', { name: /^Skip/ }).click()
       continue
     }
     if (label.startsWith('Read & understand')) {
@@ -112,4 +119,6 @@ test('create a deck, add cards, and finish a Learn session', async () => {
   await expect(win.getByText(/Great session|Nice work|Good practice/)).toBeVisible()
   await expect(win.getByText('Correct', { exact: true })).toBeVisible()
   expect(feedbackSeen).toBeGreaterThan(0)
+  // At least one blind answer was wrong and came back for another go.
+  expect(retriesSeen).toBeGreaterThan(0)
 })

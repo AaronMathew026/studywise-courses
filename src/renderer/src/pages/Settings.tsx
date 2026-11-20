@@ -194,6 +194,7 @@ function General() {
           </Button>
         </div>
       </Card>
+      <MoveLibrary />
       <Card className="flex flex-col gap-2 lg:col-span-2">
         <h3 className="flex items-center gap-2 text-lg font-semibold">
           <Info className="size-5" /> About
@@ -206,6 +207,50 @@ function General() {
         </p>
       </Card>
     </div>
+  )
+}
+
+/** Export everything to a .studywise file for another computer (Mac or Windows), or bring one in. */
+function MoveLibrary() {
+  const [progress, setProgress] = useState(false)
+  const [busy, setBusy] = useState<'export' | 'import' | null>(null)
+  const run = async (kind: 'export' | 'import') => {
+    setBusy(kind)
+    try {
+      if (kind === 'export') {
+        const r = await api.io.exportLibrary({ includeProgress: progress })
+        if (r) toast(`Exported ${r.decks} decks, ${r.cards} cards, ${r.notes} notes and ${r.courses} courses${progress ? ', with your progress' : ''}`, 'good')
+      } else {
+        const r = await api.io.importLibrary()
+        if (r) {
+          toast(`Added ${r.decks} decks, ${r.cards} cards, ${r.notes} notes and ${r.courses} courses${r.includesProgress ? ', with progress' : ''}`, 'good')
+          useStore.getState().bump()
+        }
+      }
+    } catch (e) {
+      toast(errorText(e), 'bad')
+    } finally {
+      setBusy(null)
+    }
+  }
+  return (
+    <Card className="flex flex-col gap-3">
+      <h3 className="flex items-center gap-2 text-lg font-semibold">
+        <Download className="size-5" /> Move to another computer
+      </h3>
+      <p className="text-[0.9rem] text-muted">
+        One <code className="font-mono text-[0.85em]">.studywise</code> file with all your decks, cards, notes, courses (with their files and figures), prompts and custom actions. It opens on Mac and Windows. Importing adds to the library that’s there; nothing is replaced.
+      </p>
+      <Toggle checked={progress} onChange={setProgress} label="Include my progress (review history, due dates and where I am in each topic)" />
+      <div className="flex flex-wrap gap-2">
+        <Button variant="primary" loading={busy === 'export'} onClick={() => run('export')}>
+          Export library…
+        </Button>
+        <Button loading={busy === 'import'} onClick={() => run('import')}>
+          <Upload className="size-4" /> Import library…
+        </Button>
+      </div>
+    </Card>
   )
 }
 

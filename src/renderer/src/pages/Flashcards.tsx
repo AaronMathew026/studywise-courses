@@ -3,6 +3,7 @@ import { keyLabel } from '@shared/keymap'
 import { X, Undo2, Pencil, MessageCircleQuestion, PartyPopper, RotateCcw } from 'lucide-react'
 import type { Card as CardT, ReviewState } from '@shared/types'
 import { schedule, newState, withDefaults, DEFAULT_SCHEDULER, type SchedulerKind } from '@shared/scheduler'
+import { insertRetry } from '@shared/retry'
 import { useStore, toast } from '../lib/store'
 import { api, errorText } from '../lib/api'
 import { useCommands } from '../lib/commands'
@@ -26,14 +27,15 @@ function fmtInterval(from: Date, due: string): string {
   return `${(days / 365).toFixed(1)}y`
 }
 
-export function Flashcards({ deckId, mode }: { deckId: string; mode: 'due' | 'all' }) {
+/** Review one deck, or (with courseId) the due cards from every week of a course. */
+export function Flashcards({ deckId, mode, courseId }: { deckId: string; mode: 'due' | 'all'; courseId?: string }) {
   const go = useStore((s) => s.go)
   const openExplain = useStore((s) => s.openExplain)
   const [queue, setQueue] = useState<CardT[] | null>(null)
   const [i, setI] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [state, setState] = useState<ReviewState | null>(null)
-  const [history, setHistory] = useState<{ index: number; card: CardT; prev: ReviewState | null; requeued: boolean }[]>([])
+  const [history, setHistory] = useState<{ index: number; card: CardT; prev: ReviewState | null; requeuedAt: number | null }[]>([])
   const [counts, setCounts] = useState({ 1: 0, 2: 0, 3: 0, 4: 0 })
   const [editing, setEditing] = useState<CardDraft | null>(null)
   const [deckName, setDeckName] = useState('')
@@ -41,11 +43,18 @@ export function Flashcards({ deckId, mode }: { deckId: string; mode: 'due' | 'al
   useEffect(() => void api.settings.all().then((s) => setKind((s['review.scheduler'] as SchedulerKind) ?? DEFAULT_SCHEDULER)), [])
 
   useEffect(() => {
+    if (courseId) {
+      void api.courses.get({ id: courseId }).then((c) => setDeckName(c.name))
+      void api.courses.due({ courseId }).then(setQueue)
+      return
+    }
     void api.decks.get({ id: deckId }).then((d) => setDeckName(d.name))
     void (mode === 'due' ? api.decks.due({ id: deckId }) : api.cards.list({ deckId })).then((cards) => {
       setQueue(mode === 'all' ? [...cards].sort(() => Math.random() - 0.5) : cards)
     })
-  }, [deckId, mode])
+  }, [deckId, mode, courseId])
+  // Leaving goes back to where the review started.
+  const leave = () => (courseId ? go({ name: 'course', id: courseId }) : go({ name: 'deck', id: deckId }))
 
   const card = queue?.[i]
   useEffect(() => {
@@ -64,10 +73,11 @@ export function Flashcards({ deckId, mode }: { deckId: string; mode: 'due' | 'al
     try {
       const prev = state
       await api.cards.review({ cardId: card.id, rating: r })
-      const requeue = r === 1
-      setHistory((h) => [...h, { index: i, card, prev, requeued: requeue }])
+      // Again: the card comes back a few cards later, and keeps coming back until you know it.
+      const again = r === 1 ? insertRetry(queue, i, card) : null
+      setHistory((h) => [...h, { index: i, card, prev, requeuedAt: again?.at ?? null }])
       setCounts((c) => ({ ...c, [r]: c[r] + 1 }))
-      if (requeue) setQueue([...queue, card]) // see it again this session
+      if (again) setQueue(again.list)
       setI(i + 1)
     } catch (e) {
       toast(errorText(e), 'bad')
@@ -77,7 +87,7 @@ export function Flashcards({ deckId, mode }: { deckId: string; mode: 'due' | 'al
     const last = history[history.length - 1]
     if (!last || !queue) return
     await api.cards.restoreReview({ cardId: last.card.id, state: last.prev ? { ease: last.prev.ease, interval: last.prev.interval, repetitions: last.prev.repetitions, lapses: last.prev.lapses, due: last.prev.due, last_reviewed: last.prev.last_reviewed, difficulty: last.prev.difficulty, sr_state: last.prev.sr_state, good_count: last.prev.good_count } : null })
-    if (last.requeued) setQueue(queue.slice(0, -1))
+    if (last.requeuedAt !== null) setQueue([...queue.slice(0, last.requeuedAt), ...queue.slice(last.requeuedAt + 1)])
     setHistory(history.slice(0, -1))
     setI(last.index)
     setTimeout(() => setFlipped(true), 0)
@@ -92,9 +102,9 @@ export function Flashcards({ deckId, mode }: { deckId: string; mode: 'due' | 'al
       'study.easy': () => rate(4),
       'study.undo': undo,
       'study.editCard': () => card && setEditing({ ...card }),
-      'ai.explain': () => card && openExplain({ ctx: { cardId: card.id, deckId }, title: card.front.split('\n')[0] }),
-      'study.end': () => go({ name: 'deck', id: deckId }),
-      'learn.submit': () => (card ? (flipped ? rate(3) : setFlipped(true)) : go({ name: 'deck', id: deckId }))
+      'ai.explain': () => card && openExplain({ ctx: { cardId: card.id, deckId: card.deck_id }, title: card.front.split('\n')[0] }),
+      'study.end': leave,
+      'learn.submit': () => (card ? (flipped ? rate(3) : setFlipped(true)) : leave())
     },
     [card, flipped, state, queue, i, history]
   )
@@ -106,7 +116,7 @@ export function Flashcards({ deckId, mode }: { deckId: string; mode: 'due' | 'al
   return (
     <div className="flex min-h-full flex-col px-[clamp(16px,3vw,40px)] pt-5 pb-8">
       <div className="mx-auto flex w-full max-w-[860px] items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => go({ name: 'deck', id: deckId })} title="End (esc)">
+        <Button variant="ghost" size="icon" onClick={leave} title="End (esc)">
           <X className="size-5" />
         </Button>
         <div className="min-w-0 flex-1">
@@ -139,17 +149,25 @@ export function Flashcards({ deckId, mode }: { deckId: string; mode: 'due' | 'al
             </div>
           )}
           <div className="mt-2 flex flex-wrap justify-center gap-2">
-            <Button variant="primary" onClick={() => go({ name: 'learn', deckId })}>
-              Start Learn
-            </Button>
-            {mode === 'due' && (
-              <Button onClick={() => go({ name: 'flashcards', deckId, mode: 'all' })}>
-                Review all cards
+            {courseId ? (
+              <Button variant="primary" onClick={leave}>
+                Back to the course
               </Button>
+            ) : (
+              <>
+                <Button variant="primary" onClick={() => go({ name: 'learn', deckId })}>
+                  Start Learn
+                </Button>
+                {mode === 'due' && (
+                  <Button onClick={() => go({ name: 'flashcards', deckId, mode: 'all' })}>
+                    Review all cards
+                  </Button>
+                )}
+                <Button variant="ghost" onClick={leave}>
+                  Back to deck
+                </Button>
+              </>
             )}
-            <Button variant="ghost" onClick={() => go({ name: 'deck', id: deckId })}>
-              Back to deck
-            </Button>
           </div>
         </div>
       ) : (
@@ -219,7 +237,7 @@ export function Flashcards({ deckId, mode }: { deckId: string; mode: 'due' | 'al
                 </Button>
               )}
               <div className="mt-3 flex justify-center gap-2">
-                <Button size="sm" variant="ghost" onClick={() => openExplain({ ctx: { cardId: card.id, deckId }, title: card.front.split('\n')[0] })}>
+                <Button size="sm" variant="ghost" onClick={() => openExplain({ ctx: { cardId: card.id, deckId: card.deck_id }, title: card.front.split('\n')[0] })}>
                   {keyLabel('Explain ⌘E')}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setEditing({ ...card })}>

@@ -206,17 +206,44 @@ describe('course service (mock AI)', () => {
     svc.saveProgress(topics[0].id, { ...svc.getTopic(topics[0].id).progress, section: 2 })
     expect(svc.recallCard(course.id, w2t1.id)?.topicTitle).toBe(svc.getTopic(topics[0].id).content!.title)
 
-    // Deleting a week takes its topics and their cards with it.
-    const deckId = svc.getCourse(course.id).deck_id!
-    const { listCards } = await import('../../src/main/db/repo')
-    const before = listCards(deckId).length
+    // Recall cards go in a deck per week, inside a Decks folder named after the course.
+    const full = svc.getCourse(course.id)
+    expect(full.deck_id).toBeNull()
+    const folder = repoMod.listFolders('deck').find((f) => f.id === full.deck_folder_id)
+    expect(folder?.name).toBe('Quantum 101')
+    const [wk1, wk2] = full.weeks
+    expect(repoMod.getDeck(wk1.deck_id!)).toMatchObject({ name: 'Quantum 101 · Week 1', folder_id: folder!.id })
+    expect(repoMod.getDeck(wk2.deck_id!)).toMatchObject({ name: 'Quantum 101 · Week 2: more', folder_id: folder!.id })
+    expect(repoMod.listCards(wk1.deck_id!)).toHaveLength(8) // two week-1 topics × 4
+    expect(repoMod.listCards(wk2.deck_id!)).toHaveLength(4)
+    expect(repoMod.getNote(noteId).deck_ids).toContain(wk1.deck_id)
+    expect(svc.dueCards(course.id).length).toBeGreaterThan(0)
+
+    // Renaming keeps the folder and decks in step.
+    svc.renameWeek(wk2.id, 'Week 2')
+    expect(repoMod.getDeck(wk2.deck_id!).name).toBe('Quantum 101 · Week 2')
+    svc.renameCourse(course.id, 'Quantum')
+    expect(repoMod.listFolders('deck').find((f) => f.id === folder!.id)?.name).toBe('Quantum')
+    expect(repoMod.getDeck(wk1.deck_id!).name).toBe('Quantum · Week 1')
+
+    // Models & instructions apply to every week deck, and new weeks pick them up.
+    svc.setCourseDeckSettings(course.id, { extra_instructions: 'Use SI units', model_overrides: { course_topic: { model: 'opus', effort: null } }, thresholds: null })
+    expect(repoMod.getDeck(wk2.deck_id!).extra_instructions).toBe('Use SI units')
+    const w3 = svc.addWeek(course.id)
+    expect(repoMod.getDeck(w3.deck_id!).model_overrides.course_topic?.model).toBe('opus')
+    svc.deleteWeek(w3.id)
+
+    // Deleting a week takes its deck, topics and their cards with it.
     svc.deleteWeek(w2.id)
+    expect(() => repoMod.getDeck(wk2.deck_id!)).toThrow()
     expect(svc.listTopics(course.id)).toHaveLength(3)
-    expect(listCards(deckId).length).toBe(before - 4)
     expect(svc.listFiles(course.id)).toHaveLength(2)
 
+    // Deleting the course takes the folder and its decks.
     svc.deleteCourse(course.id, false)
     expect(svc.listCourses()).toHaveLength(0)
+    expect(repoMod.listFolders('deck').some((f) => f.id === folder!.id)).toBe(false)
+    expect(() => repoMod.getDeck(wk1.deck_id!)).toThrow()
   }, 60_000)
 })
 

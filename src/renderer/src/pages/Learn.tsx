@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { keyLabel } from '@shared/keymap'
-import { X, Settings2, Lightbulb, RefreshCw, MessageCircleQuestion, ThumbsUp, SkipForward, ArrowRight, Sparkles, Trophy, Brain, CheckCircle2, XCircle, CircleDot, Database } from 'lucide-react'
+import { X, Settings2, Lightbulb, RefreshCw, MessageCircleQuestion, ThumbsUp, SkipForward, ArrowRight, Sparkles, Trophy, Brain, CheckCircle2, XCircle, CircleDot, Database, RotateCcw } from 'lucide-react'
 import type { LearnQuestion, LearnAnswer, Mark } from '@shared/questions'
+import { insertRetry } from '@shared/retry'
 import { QUESTION_LABELS, QUESTION_TYPES, type LearnSettings, type CustomAction, type QuestionType } from '@shared/types'
 import { useStore, toast } from '../lib/store'
 import { api, errorText } from '../lib/api'
@@ -27,12 +28,17 @@ interface Slot {
 }
 const emptySlot = (): Slot => ({ answer: null, mark: null, attemptId: null, marking: false, feedback: null, feedbackError: null, feedbackLoading: false, overridden: false, hints: [] })
 
+/** One turn in the session: which question (by its place in the plan) and how many times it's come back. */
+type Turn = { base: number; retry: number }
+
 export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] }) {
   const go = useStore((s) => s.go)
   const openExplain = useStore((s) => s.openExplain)
   const [session, setSession] = useState<{ id: string; total: number; settings: LearnSettings } | null>(null)
   const [questions, setQuestions] = useState<(LearnQuestion | undefined)[]>([])
+  // idx is the position in `order`; questions[] stays indexed by the plan, so batches still land in place.
   const [idx, setIdx] = useState(0)
+  const [order, setOrder] = useState<Turn[]>([])
   const [slots, setSlots] = useState<Record<number, Slot>>({})
   const [error, setError] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -67,6 +73,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
     let alive = true
     loading.current = new Set()
     setQuestions([])
+    setOrder([])
     setSlots({})
     setIdx(0)
     setFinished(null)
@@ -79,6 +86,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
         if (!alive) return
         setSession({ id: s.sessionId, total: s.total, settings: s.settings })
         setQuestions(Array(s.total).fill(undefined))
+        setOrder(Array.from({ length: s.total }, (_, i) => ({ base: i, retry: 0 })))
         void loadBatch(s.sessionId, 0)
         // Prefetch the next batch straight away so there's never a wait.
         if (s.total > BATCH) void loadBatch(s.sessionId, 1)
@@ -92,11 +100,14 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
   // Keep one batch ahead.
   useEffect(() => {
     if (!session) return
-    const next = Math.floor(idx / BATCH) + 1
-    if (next * BATCH < session.total && idx % BATCH >= 2) void loadBatch(session.id, next)
-  }, [idx, session, loadBatch])
+    const base = order[idx]?.base ?? idx
+    const next = Math.floor(base / BATCH) + 1
+    if (next * BATCH < session.total && base % BATCH >= 2) void loadBatch(session.id, next)
+  }, [idx, order, session, loadBatch])
 
-  const q = questions[idx]
+  const turn = order[idx]
+  const base = turn?.base ?? idx
+  const q = questions[base]
   const slot = slots[idx] ?? emptySlot()
   const patchSlot = (i: number, p: Partial<Slot>) => setSlots((cur) => ({ ...cur, [i]: { ...(cur[i] ?? emptySlot()), ...p } }))
 
@@ -105,7 +116,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
     const at = idx
     patchSlot(at, { answer: a, marking: true })
     try {
-      const r = await api.learn.submit({ sessionId: session.id, deckId, question: q, answer: a })
+      const r = await api.learn.submit({ sessionId: session.id, deckId, question: q, answer: a, retry: (turn?.retry ?? 0) > 0 })
       patchSlot(at, { mark: r.mark, attemptId: r.attemptId, marking: false })
       if (q.type === 'read_understand') next()
     } catch (e) {
@@ -116,7 +127,14 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
 
   const next = () => {
     if (!session) return
-    if (idx + 1 >= session.total) return void finish()
+    let len = order.length
+    // Not right yet: it comes back a few questions later, and again until it's right.
+    if (slot.mark && slot.mark.verdict !== 'correct' && q?.type !== 'read_understand') {
+      const updated = insertRetry(order, idx, { base: order[idx].base, retry: order[idx].retry + 1 }).list
+      setOrder(updated)
+      len = updated.length
+    }
+    if (idx + 1 >= len) return void finish()
     setIdx((i) => i + 1)
   }
   const finish = async () => {
@@ -158,7 +176,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
     setRegenerating(true)
     try {
       const nq = await api.learn.regenerate({ deckId, question: q })
-      setQuestions((cur) => cur.map((x, i) => (i === idx ? nq : x)))
+      setQuestions((cur) => cur.map((x, i) => (i === base ? nq : x)))
       setSlots((cur) => ({ ...cur, [idx]: emptySlot() }))
     } catch (e) {
       toast(errorText(e), 'bad')
@@ -203,7 +221,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
       'ai.explain': () => explain(),
       'study.end': () => (finished ? go({ name: 'deck', id: deckId }) : finish())
     },
-    [q, slot, idx, session, finished, hinting]
+    [q, slot, idx, order, session, finished, hinting]
   )
 
   if (error)
@@ -266,7 +284,7 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
     )
   }
 
-  const total = session?.total ?? 0
+  const total = order.length || session?.total || 0
   const verdict = slot.mark?.verdict
   const beforeActions = actions.filter((a) => a.placements.includes('learn_question'))
   const afterActions = actions.filter((a) => a.placements.includes('after_answer'))
@@ -319,9 +337,14 @@ export function Learn({ deckId, cardIds }: { deckId: string; cardIds?: string[] 
             </div>
           </div>
         ) : (
-          <div key={q.id} className="pop-in" data-qtype={QUESTION_LABELS[q.type]}>
+          <div key={`${q.id}:${idx}`} className="pop-in" data-qtype={QUESTION_LABELS[q.type]}>
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <Pill tone="accent">{QUESTION_LABELS[q.type]}</Pill>
+              {(turn?.retry ?? 0) > 0 && (
+                <Pill tone="warn">
+                  <RotateCcw className="size-3" /> Try again
+                </Pill>
+              )}
               {q.cached && (
                 <Pill>
                   <Database className="size-3" /> cached

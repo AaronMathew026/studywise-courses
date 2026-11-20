@@ -13,7 +13,7 @@ import { planTracker, topicTracker } from './liveProgress'
 import { verdictFor } from '@shared/marking'
 import { isDue } from '@shared/sm2'
 import type { Mark } from '@shared/questions'
-import type { Card, ReviewState } from '@shared/types'
+import type { Card, Deck, ReviewState } from '@shared/types'
 import {
   emptyProgress,
   mergeOutlines,
@@ -53,12 +53,13 @@ type CourseRow = Course & { note_folder_id?: string | null }
 type WeekRow = Week & { outline: string | null }
 type TopicRow = { id: string; course_id: string; week_id: string; key: string; position: number; plan: string; status: string; error: string | null; content: string | null; progress: string; updated_at: string; note_id: string | null }
 
-function cardCounts(deckId: string | null): Map<string, number> {
+function cardCounts(courseId: string): Map<string, number> {
   const m = new Map<string, number>()
-  if (!deckId) return m
+  const ids = courseDeckIds(courseId)
+  if (!ids.length) return m
   const rows = getDb()
-    .prepare("SELECT json_extract(source, '$.ref') ref, COUNT(*) n FROM cards WHERE deck_id = ? AND json_extract(source, '$.type') = 'topic' GROUP BY ref")
-    .all(deckId) as { ref: string; n: number }[]
+    .prepare(`SELECT json_extract(source, '$.ref') ref, COUNT(*) n FROM cards WHERE deck_id IN (${ids.map(() => '?').join(',')}) AND json_extract(source, '$.type') = 'topic' GROUP BY ref`)
+    .all(...ids) as { ref: string; n: number }[]
   for (const r of rows) m.set(r.ref, r.n)
   return m
 }
@@ -109,11 +110,11 @@ export function listCourses(): CourseSummary[] {
     const topics = getDb().prepare('SELECT status, progress FROM topics WHERE course_id = ?').all(r.id) as { status: string; progress: string }[]
     const weeks = getDb().prepare('SELECT status FROM weeks WHERE course_id = ?').all(r.id) as { status: string }[]
     let due = 0
-    if (r.deck_id) {
+    for (const d of courseDeckIds(r.id)) {
       try {
-        due = repo.dueCards(r.deck_id).length
+        due += repo.dueCards(d).length
       } catch {
-        due = 0
+        /* deck gone */
       }
     }
     const { note_folder_id: _f, ...course } = r
@@ -137,8 +138,8 @@ export function listFiles(courseId: string): CourseFile[] {
 
 /** All topics of a course, in teaching order (week, then position). */
 export function listTopics(courseId: string): Topic[] {
-  const r = courseRow(courseId)
-  const counts = cardCounts(r.deck_id)
+  courseRow(courseId)
+  const counts = cardCounts(courseId)
   return (getDb().prepare('SELECT t.* FROM topics t JOIN weeks w ON w.id = t.week_id WHERE t.course_id = ? ORDER BY w.position, t.position').all(courseId) as TopicRow[]).map((t) =>
     toTopic(t, counts)
   )
@@ -147,7 +148,7 @@ export function listTopics(courseId: string): Topic[] {
 export function getTopic(id: string): Topic {
   const r = getDb().prepare('SELECT * FROM topics WHERE id = ?').get(id) as TopicRow | undefined
   if (!r) throw new Error('Topic not found')
-  return toTopic(r, cardCounts(courseRow(r.course_id).deck_id))
+  return toTopic(r, cardCounts(r.course_id))
 }
 
 function touchCourse(id: string): void {
@@ -178,26 +179,111 @@ function courseDir(courseId: string): string {
   return join(paths.courses, courseId)
 }
 
-function ensureDeck(courseId: string): string {
-  const c = courseRow(courseId)
-  if (c.deck_id) {
-    try {
-      repo.getDeck(c.deck_id)
-      return c.deck_id
-    } catch {
-      /* deleted: make a new one */
-    }
+// Recall cards live in Decks, in a folder named after the course with one
+// deck per week ("Physics · Week 1"). Courses made before this kept one deck
+// for everything (courses.deck_id); organizeCourseDecks() sorts those out.
+
+const deckExists = (id: string | null | undefined): id is string => {
+  if (!id) return false
+  try {
+    repo.getDeck(id)
+    return true
+  } catch {
+    return false
   }
-  const deck = repo.createDeck({ name: c.name, description: 'Recall cards from the course' })
-  getDb().prepare('UPDATE courses SET deck_id = ? WHERE id = ?').run(deck.id, courseId)
+}
+
+export const weekDeckName = (courseName: string, weekLabel: string) => `${courseName} · ${weekLabel}`
+
+/** The course's folder in Decks (made again if it was deleted). */
+export function deckFolder(courseId: string): string {
+  const c = courseRow(courseId)
+  if (c.deck_folder_id && repo.listFolders('deck').some((f) => f.id === c.deck_folder_id)) return c.deck_folder_id
+  const f = repo.createFolder(c.name, 'deck')
+  getDb().prepare('UPDATE courses SET deck_folder_id = ? WHERE id = ?').run(f.id, courseId)
+  return f.id
+}
+
+/** Every deck holding this course's cards: the week decks, plus an old course-wide deck. */
+export function courseDeckIds(courseId: string): string[] {
+  const c = courseRow(courseId)
+  const weekDecks = (getDb().prepare('SELECT deck_id FROM weeks WHERE course_id = ? ORDER BY position').all(courseId) as { deck_id: string | null }[]).map((w) => w.deck_id)
+  return [...new Set([...weekDecks, c.deck_id].filter(deckExists))]
+}
+
+type DeckAiSettings = Pick<Deck, 'extra_instructions' | 'model_overrides' | 'thresholds'>
+
+/** Models & instructions are set for the whole course, so all its decks share them. */
+export function courseDeckSettings(courseId: string): DeckAiSettings {
+  const id = courseDeckIds(courseId)[0]
+  if (!id) return { extra_instructions: '', model_overrides: {}, thresholds: null }
+  const d = repo.getDeck(id)
+  return { extra_instructions: d.extra_instructions, model_overrides: d.model_overrides, thresholds: d.thresholds }
+}
+
+export function setCourseDeckSettings(courseId: string, s: DeckAiSettings): void {
+  for (const id of courseDeckIds(courseId)) repo.updateDeck(id, s)
+}
+
+/** The deck for a week's recall cards, made (in the course folder) when missing. */
+export function ensureWeekDeck(weekId: string): string {
+  const w = weekRow(weekId)
+  if (deckExists(w.deck_id)) return w.deck_id
+  const c = courseRow(w.course_id)
+  const settings = courseDeckSettings(c.id)
+  const deck = repo.createDeck({ name: weekDeckName(c.name, w.label), folder_id: deckFolder(c.id), description: `Recall cards from ${c.name}, ${w.label}` })
+  repo.updateDeck(deck.id, settings)
+  getDb().prepare('UPDATE weeks SET deck_id = ? WHERE id = ?').run(deck.id, weekId)
   return deck.id
+}
+
+/** A deck to run course-wide AI calls with (they all share the course's settings). */
+function courseDeckId(courseId: string): string | null {
+  return courseDeckIds(courseId)[0] ?? null
+}
+
+/**
+ * Gives every course its folder and week decks, and moves cards out of the old
+ * one-deck-per-course layout (review history goes with them). Runs at startup;
+ * does nothing once a course is organised.
+ */
+export function organizeCourseDecks(): void {
+  const d = getDb()
+  for (const c of d.prepare('SELECT * FROM courses').all() as CourseRow[]) {
+    deckFolder(c.id)
+    const weeks = d.prepare('SELECT id FROM weeks WHERE course_id = ? ORDER BY position').all(c.id) as { id: string }[]
+    for (const w of weeks) ensureWeekDeck(w.id)
+    if (!deckExists(c.deck_id)) {
+      if (c.deck_id) d.prepare('UPDATE courses SET deck_id = NULL WHERE id = ?').run(c.id)
+      continue
+    }
+    const legacy = c.deck_id
+    const weekOf = new Map((d.prepare('SELECT t.id, w.deck_id FROM topics t JOIN weeks w ON w.id = t.week_id WHERE t.course_id = ?').all(c.id) as { id: string; deck_id: string }[]).map((r) => [r.id, r.deck_id]))
+    const cards = d.prepare("SELECT id, json_extract(source, '$.ref') ref FROM cards WHERE deck_id = ? AND json_extract(source, '$.type') = 'topic'").all(legacy) as { id: string; ref: string | null }[]
+    d.transaction(() => {
+      for (const card of cards) {
+        const target = card.ref ? weekOf.get(card.ref) : undefined
+        if (!target) continue
+        repo.moveCards([card.id], target)
+        d.prepare('UPDATE review_log SET deck_id = ? WHERE card_id = ?').run(target, card.id)
+      }
+      const left = (d.prepare('SELECT COUNT(*) n FROM cards WHERE deck_id = ?').get(legacy) as { n: number }).n
+      if (left === 0) {
+        repo.deleteDeck(legacy)
+        d.prepare('UPDATE courses SET deck_id = NULL WHERE id = ?').run(c.id)
+      } else {
+        // Cards you added yourself stay together, inside the course folder.
+        repo.updateDeck(legacy, { name: `${c.name} · Other cards`, folder_id: deckFolder(c.id) })
+      }
+    })()
+  }
 }
 
 export function createCourse(input: { name: string; level: string }): Course {
   const id = uid()
   const t = now()
   getDb().prepare('INSERT INTO courses (id, name, module, level, deck_id, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?)').run(id, input.name, input.name, input.level, t, t)
-  ensureDeck(id)
+  deckFolder(id)
   return courseRow(id)
 }
 
@@ -208,6 +294,7 @@ export function addWeek(courseId: string, label?: string): Week {
   getDb()
     .prepare("INSERT INTO weeks (id, course_id, position, label, status, error, outline, created_at) VALUES (?, ?, ?, ?, 'empty', NULL, NULL, ?)")
     .run(id, courseId, n.p + 1, label?.trim() || `Week ${n.n + 1}`, now())
+  ensureWeekDeck(id)
   touchCourse(courseId)
   return toWeek(weekRow(id))
 }
@@ -218,6 +305,8 @@ export function getCourseIdForWeek(weekId: string): string {
 
 export function renameWeek(weekId: string, label: string): void {
   setWeek(weekId, { label })
+  const w = weekRow(weekId)
+  if (deckExists(w.deck_id)) repo.updateDeck(w.deck_id, { name: weekDeckName(courseRow(w.course_id).name, label) })
 }
 
 /** Removes the week, its files, its topics and their recall cards. */
@@ -225,7 +314,8 @@ export function deleteWeek(weekId: string): void {
   const w = weekRow(weekId)
   const c = courseRow(w.course_id)
   const topicIds = (getDb().prepare('SELECT id FROM topics WHERE week_id = ?').all(weekId) as { id: string }[]).map((r) => r.id)
-  if (c.deck_id) for (const t of topicIds) repo.deleteCards(topicCardIds(c.deck_id, t))
+  for (const t of topicIds) repo.deleteCards(topicCardIds(c.id, t))
+  if (deckExists(w.deck_id)) repo.deleteDeck(w.deck_id)
   for (const f of listFiles(w.course_id).filter((f) => f.week_id === weekId)) rmSync(f.path, { force: true })
   getDb().prepare('DELETE FROM weeks WHERE id = ?').run(weekId)
   touchCourse(w.course_id)
@@ -262,15 +352,22 @@ export function removeFile(fileId: string): void {
 
 export function deleteCourse(id: string, keepDeck: boolean): void {
   const c = courseRow(id)
+  const decks = courseDeckIds(id)
   getDb().prepare('DELETE FROM courses WHERE id = ?').run(id)
-  if (!keepDeck && c.deck_id) repo.deleteDeck(c.deck_id)
+  if (!keepDeck) {
+    for (const d of decks) repo.deleteDeck(d)
+    if (c.deck_folder_id) repo.deleteFolder(c.deck_folder_id)
+  }
   rmSync(courseDir(id), { recursive: true, force: true })
 }
 
 export function renameCourse(id: string, name: string): void {
   getDb().prepare('UPDATE courses SET name = ?, module = ?, updated_at = ? WHERE id = ?').run(name, name, now(), id)
-  const f = courseRow(id).note_folder_id
-  if (f) repo.renameFolder(f, name)
+  const c = courseRow(id)
+  if (c.note_folder_id) repo.renameFolder(c.note_folder_id, name)
+  if (c.deck_folder_id) repo.renameFolder(c.deck_folder_id, name)
+  for (const w of getDb().prepare('SELECT deck_id, label FROM weeks WHERE course_id = ?').all(id) as { deck_id: string | null; label: string }[])
+    if (deckExists(w.deck_id)) repo.updateDeck(w.deck_id, { name: weekDeckName(name, w.label) })
 }
 
 // ---------------------------------------------------------------------------
@@ -341,7 +438,7 @@ export async function planWeek(weekId: string, ctx: JobContext, instructions = '
         task: 'course_outline',
         vars: { ...baseVars, files: describe(list), source_text: source, part_info: [earlierNote, partInfo].filter(Boolean).join('\n\n') },
         files: attach.length ? attach : undefined,
-        deckId: course.deck_id,
+        deckId: ensureWeekDeck(weekId),
         signal: ctx.signal
       })
       return r.data
@@ -485,8 +582,15 @@ function mapFigure(fig: AiTopic['sections'][number]['figure'], attached: Attache
   return page ? { fileId: a.fileId, page, caption: fig.caption } : null
 }
 
-function topicCardIds(deckId: string, topicId: string): string[] {
-  return (getDb().prepare("SELECT id FROM cards WHERE deck_id = ? AND json_extract(source, '$.type') = 'topic' AND json_extract(source, '$.ref') = ?").all(deckId, topicId) as { id: string }[]).map((r) => r.id)
+/** A topic's recall cards, in whichever of the course's decks they are. */
+function topicCardIds(courseId: string, topicId: string): string[] {
+  const ids = courseDeckIds(courseId)
+  if (!ids.length) return []
+  return (
+    getDb()
+      .prepare(`SELECT id FROM cards WHERE deck_id IN (${ids.map(() => '?').join(',')}) AND json_extract(source, '$.type') = 'topic' AND json_extract(source, '$.ref') = ?`)
+      .all(...ids, topicId) as { id: string }[]
+  ).map((r) => r.id)
 }
 
 export async function writeTopic(topicId: string, ctx: JobContext, instructions = ''): Promise<{ topicId: string; sections: number; cards: number }> {
@@ -516,7 +620,7 @@ export async function writeTopic(topicId: string, ctx: JobContext, instructions 
         instructions
       },
       files: src.attach.length ? src.attach : undefined,
-      deckId: course.deck_id,
+      deckId: ensureWeekDeck(topic.week_id),
       onEvent: topicTracker(live, topic.plan.sections.length, 0.08, 0.9),
       signal: ctx.signal
     })
@@ -533,8 +637,8 @@ export async function writeTopic(topicId: string, ctx: JobContext, instructions 
     if (!content.sections.length) throw new Error('Claude returned a topic with no sections.')
 
     // Recall cards replace this topic's old ones.
-    const deckId = ensureDeck(course.id)
-    const old = topicCardIds(deckId, topicId)
+    const deckId = ensureWeekDeck(topic.week_id)
+    const old = topicCardIds(course.id, topicId)
     if (old.length) repo.deleteCards(old)
     const cards = repo.createCards(
       ai.cards
@@ -602,18 +706,19 @@ export function resetTopicProgress(topicId: string): Topic {
   return getTopic(topicId)
 }
 
-export async function markExplain(courseId: string, q: Extract<CourseQuestion, { type: 'explain' }>, answer: string): Promise<{ mark: Mark; wrong: string }> {
+export async function markExplain(courseId: string, q: Extract<CourseQuestion, { type: 'explain' }>, answer: string, topicId?: string): Promise<{ mark: Mark; wrong: string }> {
   const c = courseRow(courseId)
+  const deckId = topicId ? ensureWeekDeck(getTopic(topicId).week_id) : courseDeckId(courseId)
   if (!answer.trim()) return { mark: { score: 0, verdict: 'wrong', detail: { points_found: [], points_missing: q.points, short_feedback: 'Have a go first, even a rough answer gets marks.' }, by: 'code' }, wrong: '' }
   const r = await runAI<CourseMarkOut>({
     task: 'course_mark',
     vars: { module: c.module || c.name, level: c.level, question: q.q, model: q.model, points: q.points.map((p) => `- ${p}`).join('\n'), answer },
-    deckId: c.deck_id
+    deckId
   })
   const m = r.data
   const score = Math.max(0, Math.min(10, m.score))
   return {
-    mark: { score, verdict: verdictFor(score, thresholdsFor(c.deck_id)), detail: { points_found: m.got, points_missing: m.missed, short_feedback: m.feedback }, by: 'ai' },
+    mark: { score, verdict: verdictFor(score, thresholdsFor(deckId)), detail: { points_found: m.got, points_missing: m.missed, short_feedback: m.feedback }, by: 'ai' },
     wrong: m.wrong
   }
 }
@@ -623,14 +728,16 @@ export async function markExplain(courseId: string, q: Extract<CourseQuestion, {
  * (any week). Due or never-reviewed cards first.
  */
 export function recallCard(courseId: string, excludeTopicId: string, exclude: string[] = []): { card: Card; topicTitle: string } | null {
-  const c = courseRow(courseId)
-  if (!c.deck_id) return null
+  const decks = courseDeckIds(courseId)
+  if (!decks.length) return null
   const started = listTopics(courseId).filter((t) => t.id !== excludeTopicId && t.status === 'ready' && (t.progress.section > 0 || t.progress.done))
   if (!started.length) return null
   const titles = new Map(started.map((t) => [t.id, t.content?.title ?? t.plan.title]))
-  const cards = repo.listCards(c.deck_id).filter((card) => card.source?.type === 'topic' && card.source.ref && titles.has(card.source.ref) && !exclude.includes(card.id))
+  const cards = decks.flatMap((d) => repo.listCards(d)).filter((card) => card.source?.type === 'topic' && card.source.ref && titles.has(card.source.ref) && !exclude.includes(card.id))
   if (!cards.length) return null
-  const states = new Map((getDb().prepare('SELECT r.* FROM review_state r JOIN cards c ON c.id = r.card_id WHERE c.deck_id = ?').all(c.deck_id) as ReviewState[]).map((s) => [s.card_id, s]))
+  const states = new Map(
+    (getDb().prepare(`SELECT r.* FROM review_state r JOIN cards c ON c.id = r.card_id WHERE c.deck_id IN (${decks.map(() => '?').join(',')})`).all(...decks) as ReviewState[]).map((s) => [s.card_id, s])
+  )
   const due = cards.filter((card) => isDue(states.get(card.id)))
   const pool = due.length ? due : cards
   const card = pool[Math.floor(Math.random() * pool.length)]
@@ -639,6 +746,11 @@ export function recallCard(courseId: string, excludeTopicId: string, exclude: st
 
 export function recallReview(cardId: string, knew: boolean): void {
   repo.applyReview(cardId, knew ? 3 : 1, 'learn')
+}
+
+/** Due recall cards from every week of the course, in week order. */
+export function dueCards(courseId: string): Card[] {
+  return courseDeckIds(courseId).flatMap((d) => repo.dueCards(d))
 }
 
 function noteFolder(courseId: string): string {
@@ -681,7 +793,7 @@ export async function syncTopicNote(topicId: string): Promise<string> {
     noteId = repo.createNote({ ...fields, folder_id: noteFolder(course.id) }).id
     getDb().prepare('UPDATE topics SET note_id = ? WHERE id = ?').run(noteId, topicId)
   }
-  if (course.deck_id) repo.linkNoteDeck(noteId, course.deck_id, true)
+  repo.linkNoteDeck(noteId, ensureWeekDeck(t.week_id), true)
   return noteId
 }
 

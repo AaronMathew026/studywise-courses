@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, Lightbulb, CheckCircle2, XCircle, CircleDot, BookOpen, Trophy, Brain, ArrowRight, Sparkles, Shuffle, NotebookPen } from 'lucide-react'
+import { X, Lightbulb, CheckCircle2, XCircle, CircleDot, BookOpen, Trophy, Brain, ArrowRight, Sparkles, Shuffle, NotebookPen, RotateCcw } from 'lucide-react'
 import {
   COURSE_QUESTION_LABELS,
   expectedText,
@@ -18,6 +18,7 @@ import { api, errorText } from '../lib/api'
 import { Markdown } from '../components/Markdown'
 import { Button, Dots, Kbd, Modal, Pill, Textarea, cx } from '../components/ui'
 import { CourseQuestionView } from '../learn/CourseQuestions'
+import { insertRetry } from '@shared/retry'
 import { SUBMIT_EVENT } from '../learn/Questions'
 
 /** Chance of a surprise recall card from another topic after a section. */
@@ -25,7 +26,8 @@ const RECALL_CHANCE = 0.25
 
 type Step =
   | { kind: 'notes'; section: number }
-  | { kind: 'q'; section: number; index: number; q: CourseQuestion } // section -1 = topic check
+  // section -1 = topic check; retry counts how many times it's come back
+  | { kind: 'q'; section: number; index: number; q: CourseQuestion; retry?: number }
   | { kind: 'recall'; after: number }
   | { kind: 'check_intro' }
   | { kind: 'summary' }
@@ -58,6 +60,14 @@ function buildSteps(t: Topic): Step[] {
 }
 
 const credit = (m: Mark | null) => (!m ? 0 : m.verdict === 'correct' ? 1 : m.verdict === 'partial' ? 0.5 : 0)
+
+/** Put a missed question back in a few steps on, always before the summary. */
+function withRetry(steps: Step[], at: number): Step[] {
+  const s = steps[at]
+  if (!s || s.kind !== 'q') return steps
+  const summary = steps.findIndex((x) => x.kind === 'summary')
+  return insertRetry(steps, at, { ...s, retry: (s.retry ?? 0) + 1 }, summary === -1 ? steps.length : summary).list
+}
 
 export function TopicPage({ id }: { id: string }) {
   const go = useStore((s) => s.go)
@@ -116,14 +126,23 @@ export function TopicPage({ id }: { id: string }) {
     if (step.kind === 'notes') save({ section: step.section })
     if (step.kind === 'check_intro') save({ section: topic.content.sections.length })
     if (step.kind === 'summary') {
-      const checks = steps.map((s, i) => [s, i] as const).filter(([s]) => s.kind === 'q' && s.section === -1)
+      const checks = steps.map((s, i) => [s, i] as const).filter(([s]) => s.kind === 'q' && s.section === -1 && !s.retry)
       const score = checks.reduce((n, [, i]) => n + credit(slots[i]?.mark ?? null), 0)
       save({ section: topic.content.sections.length, done: true, checkScore: checks.length ? Math.round(score * 10) / 10 : null, checkTotal: checks.length || null })
       useStore.getState().bump()
     }
   }, [at, step?.kind])
 
-  const next = () => setAt((i) => Math.min(steps.length - 1, i + 1))
+  const next = () => {
+    // Not right yet: it comes back a little later in this session.
+    if (step?.kind === 'q' && slot.mark && slot.mark.verdict !== 'correct') {
+      const updated = withRetry(steps, at)
+      setSteps(updated)
+      setAt(Math.min(updated.length - 1, at + 1))
+      return
+    }
+    setAt((i) => Math.min(steps.length - 1, i + 1))
+  }
 
   const submit = async (a: CourseAnswer) => {
     if (!step || step.kind !== 'q' || !topic || slot.mark || slot.marking) return
@@ -134,12 +153,12 @@ export function TopicPage({ id }: { id: string }) {
       let mark: Mark | null
       let correction = ''
       if (q.type === 'explain') {
-        const r = await api.courses.mark({ courseId: topic.course_id, question: q, answer: a.type === 'free_answer' ? a.text : '' })
+        const r = await api.courses.mark({ courseId: topic.course_id, topicId: topic.id, question: q, answer: a.type === 'free_answer' ? a.text : '' })
         mark = r.mark
         correction = r.wrong
       } else mark = markCourseAnswer(q, a)
       patch(i, { mark, marking: false, correction })
-      if (progress.current) save({ answered: progress.current.answered + 1, correct: progress.current.correct + credit(mark) })
+      if (progress.current && !step.retry) save({ answered: progress.current.answered + 1, correct: progress.current.correct + credit(mark) })
     } catch (e) {
       patch(i, { marking: false, answer: null })
       toast(errorText(e), 'bad')
@@ -150,7 +169,7 @@ export function TopicPage({ id }: { id: string }) {
     if (!slot.mark || slot.mark.verdict === 'correct' || !progress.current) return
     const before = credit(slot.mark)
     patch(at, { mark: { ...slot.mark, score: 10, verdict: 'correct' }, overridden: true })
-    save({ correct: progress.current.correct + 1 - before })
+    if (!(step?.kind === 'q' && step.retry)) save({ correct: progress.current.correct + 1 - before })
   }
 
   const explain = () => {
@@ -252,6 +271,11 @@ export function TopicPage({ id }: { id: string }) {
           <div key={at} className="pop-in">
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <Pill tone="accent">{COURSE_QUESTION_LABELS[step.q.type]}</Pill>
+              {step.retry ? (
+                <Pill tone="warn">
+                  <RotateCcw className="size-3" /> Try again
+                </Pill>
+              ) : null}
               <span className="flex-1" />
               {!slot.mark && step.q.hint && (
                 <Button size="sm" variant="ghost" onClick={() => patch(at, { hint: true })} disabled={slot.hint} title="Hint (H)">
