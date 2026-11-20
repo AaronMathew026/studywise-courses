@@ -192,7 +192,7 @@ export const TASK_INFO: Record<TaskId, TaskInfo> = {
   course_outline: {
     id: 'course_outline',
     label: 'Course: plan topics',
-    defaultModel: 'opus',
+    defaultModel: 'sonnet',
     modes: ['json'],
     variables: ['module', 'level', 'files', 'source_text', 'part_info', 'instructions'],
     streams: false,
