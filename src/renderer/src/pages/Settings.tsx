@@ -28,9 +28,9 @@ import {
   Info,
   Archive
 } from 'lucide-react'
-import type { Preset, PresetVersion, CustomAction, ModelChoice, AiCall, Thresholds } from '@shared/types'
+import type { Preset, PresetVersion, CustomAction, ModelChoice, AiCall, Thresholds, AiProvider, OllamaModel } from '@shared/types'
 import { ACTION_PLACEMENTS, DEFAULT_THRESHOLDS } from '@shared/types'
-import { TASK_INFO, TASKS, MODEL_ALIASES, EFFORT_LEVELS, type TaskId } from '@shared/tasks'
+import { TASK_INFO, TASKS, MODEL_ALIASES, EFFORT_LEVELS, OLLAMA_EFFORT_LEVELS, type TaskId } from '@shared/tasks'
 import { useStore, toast } from '../lib/store'
 import { Jobs } from './Jobs'
 import { api, streamCall, errorText } from '../lib/api'
@@ -40,10 +40,11 @@ import { Shell, PageTitle } from '../components/Shell'
 import { Button, Card, Field, Input, Modal, Pill, Segmented, Select, Textarea, Toggle, cx, Kbd } from '../components/ui'
 import { Markdown } from '../components/Markdown'
 import { UsageBars } from '../components/UsageMeter'
+import { OllamaModelOptions, useOllamaModels } from '../components/OllamaModels'
 
 const TABS = [
   { id: 'general', label: 'General', icon: Gear },
-  { id: 'claude', label: 'Claude Code', icon: Terminal },
+  { id: 'claude', label: 'AI provider', icon: Terminal },
   { id: 'models', label: 'Models', icon: Cpu },
   { id: 'prompts', label: 'Prompts', icon: Sparkles },
   { id: 'actions', label: 'Custom actions', icon: Wand2 },
@@ -85,7 +86,7 @@ export function Settings({ tab = 'general' }: { tab?: string }) {
       </div>
       <div key={cur} className="page-in">
         {cur === 'general' && <General />}
-        {cur === 'claude' && <ClaudeTab />}
+        {cur === 'claude' && <ProviderTab />}
         {cur === 'models' && <ModelsTab />}
         {cur === 'prompts' && <PromptsTab />}
         {cur === 'actions' && <ActionsTab />}
@@ -157,6 +158,7 @@ function General() {
             { value: 'sm2', label: 'SM-2' }
           ]}
         />
+        <Toggle checked={s['anki.keepSchedule'] !== false} onChange={(v) => set('anki.keepSchedule', v)} label="Keep review progress when importing Anki decks" />
         <p className="text-[0.88rem] text-muted">
           {((s['review.scheduler'] as string) ?? 'adaptive') === 'adaptive'
             ? 'Cards start at difficulty 0.60 with three 1-day steps, then intervals grow fast (≈3, 8, 20, 115, 280+ days). A card comes back after interval × (0.694 − 0.187 × difficulty), so harder cards return sooner.'
@@ -200,14 +202,169 @@ function General() {
           Studywise {info?.version} · Electron {info?.electron} {info?.mock && <Pill tone="warn">AI_MOCK on</Pill>}
         </p>
         <p className="text-[0.92rem] text-muted">
-          Every AI feature runs through the Claude Code CLI on this Mac, using your own Claude subscription. Studywise never sees or stores your login. Use is subject to Anthropic’s terms.
+          AI features run through the Claude Code CLI on this computer with your own Claude subscription, or through Ollama if you switch to it under AI provider. Studywise never sees your Claude login. Use is subject to each provider’s terms.
         </p>
       </Card>
     </div>
   )
 }
 
-function ClaudeTab() {
+function ProviderTab() {
+  const ai = useStore((s) => s.ai)
+  const setAi = useStore((s) => s.setAi)
+  if (!ai) return <div className="skeleton h-80" />
+  const choose = async (provider: AiProvider) => setAi(await api.ai.setProvider({ provider }))
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="flex flex-col gap-3">
+        <h3 className="text-lg font-semibold">Which AI runs Studywise</h3>
+        <Segmented
+          value={ai.provider}
+          onChange={(v) => void choose(v)}
+          options={[
+            { value: 'claude', label: 'Claude Code' },
+            { value: 'ollama', label: 'Ollama' }
+          ]}
+          className="self-start"
+        />
+        <p className="text-[0.9rem] text-muted">
+          {ai.provider === 'claude'
+            ? 'Every AI feature runs through the Claude Code CLI on this computer, using your Claude subscription.'
+            : 'Every AI feature runs on Ollama: its cloud models with an API key, or models on your own Ollama server. Pick the models in Settings → Models.'}
+        </p>
+      </Card>
+      {ai.provider === 'ollama' ? <OllamaCard /> : <ClaudeCard />}
+    </div>
+  )
+}
+
+function OllamaCard() {
+  const ai = useStore((s) => s.ai)!
+  const setAi = useStore((s) => s.setAi)
+  const go = useStore((s) => s.go)
+  const st = ai.ollama
+  const [url, setUrl] = useState(st.baseUrl)
+  const [key, setKey] = useState('')
+  const [numCtx, setNumCtx] = useState<number | null>(null)
+  const [busy, setBusy] = useState<'save' | 'test' | null>(null)
+  const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null)
+  useEffect(() => setUrl(st.baseUrl), [st.baseUrl])
+  useEffect(() => {
+    void api.settings.all().then((s) => setNumCtx(Number(s['ollama.numCtx'] ?? 32768)))
+  }, [])
+  const refresh = async () => setAi(await api.ai.status())
+  const save = async (patch: Parameters<typeof api.ollama.setConfig>[0]) => {
+    setBusy('save')
+    try {
+      await api.ollama.setConfig(patch)
+      await refresh()
+      setTest(null)
+    } catch (e) {
+      toast(errorText(e), 'bad')
+    } finally {
+      setBusy(null)
+    }
+  }
+  const runTest = async () => {
+    setBusy('test')
+    try {
+      const models = await api.ollama.models({ refresh: true })
+      setTest({ ok: true, text: `Connected. ${models.length} model${models.length === 1 ? '' : 's'} available.` })
+    } catch (e) {
+      setTest({ ok: false, text: errorText(e) })
+    } finally {
+      setBusy(null)
+    }
+  }
+  const isCloud = /^(https?:\/\/)?([^/]+\.)?ollama\.com(\/|$)/i.test(url.trim())
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+      <Card className="flex flex-col gap-4">
+        <div className="flex items-center gap-3">
+          <span className={cx('grid size-12 place-items-center rounded-full', st.ready ? 'bg-good-soft text-good' : 'bg-bad-soft text-bad')}>
+            {st.ready ? <CheckCircle2 className="size-6" /> : <XCircle className="size-6" />}
+          </span>
+          <div>
+            <div className="text-lg font-semibold">{st.ready ? (st.cloud ? 'Ollama Cloud is ready' : 'Using your Ollama server') : 'Add your API key'}</div>
+            <div className="text-[0.9rem] text-muted">{st.defaultModel ? `Default model: ${st.defaultModel}` : 'No default model chosen yet'}</div>
+          </div>
+        </div>
+        <Field label="Server" hint={isCloud ? 'Ollama Cloud. Calls go straight to ollama.com.' : 'Your own Ollama, e.g. http://localhost:11434. Models ending in -cloud run on Ollama Cloud through it.'}>
+          <div className="flex gap-2">
+            <Input value={url} onChange={(e) => setUrl(e.target.value)} onBlur={() => url.trim() !== st.baseUrl && void save({ baseUrl: url })} className="font-mono text-[0.85rem]" />
+            <Select
+              value=""
+              onChange={(e) => {
+                if (!e.target.value) return
+                setUrl(e.target.value)
+                void save({ baseUrl: e.target.value })
+              }}
+              className="w-36 shrink-0"
+            >
+              <option value="">Presets…</option>
+              <option value="https://ollama.com">Ollama Cloud</option>
+              <option value="http://localhost:11434">This computer</option>
+            </Select>
+          </div>
+        </Field>
+        <Field
+          label="API key"
+          hint={
+            st.keyFromEnv
+              ? 'Using the OLLAMA_API_KEY environment variable.'
+              : st.hasKey
+                ? 'Saved and encrypted with your Windows login. It is only ever sent to your Ollama server.'
+                : isCloud
+                  ? 'Create one at ollama.com/settings/keys.'
+                  : 'Not needed for a local server.'
+          }
+        >
+          <div className="flex gap-2">
+            <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={st.hasKey ? '••••••••••••  (saved)' : 'Paste your key'} autoComplete="off" />
+            <Button
+              variant="primary"
+              disabled={!key.trim()}
+              loading={busy === 'save'}
+              onClick={async () => {
+                await save({ apiKey: key.trim() })
+                setKey('')
+              }}
+            >
+              Save
+            </Button>
+            {st.hasKey && !st.keyFromEnv && (
+              <Button variant="ghost" onClick={() => save({ apiKey: null })}>
+                Remove
+              </Button>
+            )}
+          </div>
+        </Field>
+        {!isCloud && numCtx !== null && (
+          <Field label="Context size (tokens)" hint="Local models default to a small window, so long PDFs get cut off. Bigger needs more memory.">
+            <Input type="number" min={2048} step={1024} value={numCtx} onChange={(e) => setNumCtx(Number(e.target.value) || 32768)} onBlur={() => save({ numCtx: Math.max(2048, numCtx) })} className="w-40" />
+          </Field>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button loading={busy === 'test'} onClick={runTest}>
+            Test connection
+          </Button>
+          <Button variant="ghost" onClick={() => go({ name: 'settings', tab: 'models' })}>
+            Choose models →
+          </Button>
+          {test && <span className={cx('text-[0.88rem]', test.ok ? 'text-good' : 'text-bad')}>{test.text}</span>}
+        </div>
+      </Card>
+      <Card className="flex flex-col gap-3 text-[0.92rem]">
+        <h3 className="text-lg font-semibold">How it works</h3>
+        <p className="text-muted">Studywise sends each prompt to Ollama’s chat API and streams the reply back. Files you give it are read on this computer and sent as text. Scanned PDFs go as page images, which needs a model with vision.</p>
+        <p className="text-muted">Cloud models don’t support structured output, so for questions, marking and courses the expected JSON format goes in the prompt, and the reply is checked and retried once if it doesn’t fit. Bigger models follow it more reliably.</p>
+        <p className="text-muted">Your Claude settings are kept, so you can switch back at any time.</p>
+      </Card>
+    </div>
+  )
+}
+
+function ClaudeCard() {
   const claude = useStore((s) => s.claude)
   const setClaude = useStore((s) => s.setClaude)
   const [busy, setBusy] = useState(false)
@@ -264,17 +421,203 @@ function ClaudeTab() {
 }
 
 function ModelsTab() {
+  const provider = useStore((s) => s.ai?.provider)
+  if (!provider) return <div className="skeleton h-80" />
+  return provider === 'ollama' ? <OllamaModelsTab /> : <ClaudeModelsTab />
+}
+
+type TestState = Record<string, { ok: boolean; reply: string; ms: number } | 'running'>
+
+function TestResult({ r }: { r: TestState[string] | undefined }) {
+  if (!r || r === 'running') return null
+  return (
+    <span title={r.reply} className={cx('max-w-40 truncate text-[0.8rem]', r.ok ? 'text-good' : 'text-bad')}>
+      {r.ok ? `✓ ${(r.ms / 1000).toFixed(1)}s` : `✗ ${r.reply}`}
+    </span>
+  )
+}
+
+function OllamaModelsTab() {
+  const ai = useStore((s) => s.ai)!
+  const setAi = useStore((s) => s.setAi)
+  const st = ai.ollama
+  const { models: list, error, loading, load } = useOllamaModels(true)
+  const [table, setTable] = useState<Record<string, ModelChoice> | null>(null)
+  const [tests, setTests] = useState<TestState>({})
+  const [filter, setFilter] = useState('')
+  const [custom, setCustom] = useState('')
+  useEffect(() => void api.models.get({ provider: 'ollama' }).then(setTable), [])
+  if (!table || !list) return <div className="skeleton h-80" />
+  const set = async (task: TaskId, choice: ModelChoice) => {
+    setTable({ ...table, [task]: choice })
+    await api.models.set({ task, choice, provider: 'ollama' })
+  }
+  const test = async (key: string, model: string, effort: string | null) => {
+    if (!model) return toast('Choose a model first', 'bad')
+    setTests((t) => ({ ...t, [key]: 'running' }))
+    const r = await api.models.test({ model, effort, provider: 'ollama' })
+    setTests((t) => ({ ...t, [key]: r }))
+  }
+  const star = async (model: string, saved: boolean) => setAi({ ...ai, ollama: await api.ollama.saveModel({ model, saved }) })
+  const setDefault = async (model: string) => setAi({ ...ai, ollama: await api.ollama.setDefault({ model }) })
+  const shown = list.filter((m) => !filter || m.name.toLowerCase().includes(filter.toLowerCase()))
+  const unlisted = st.saved.filter((m) => !list.some((x) => x.name === m))
+  const caps = (m: OllamaModel) => m.capabilities.filter((c) => c === 'vision' || c === 'thinking')
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
+        <Card className="flex flex-col gap-4">
+          <div>
+            <h3 className="text-lg font-semibold">Default model</h3>
+            <p className="text-[0.9rem] text-muted">Every task uses this unless you pick something else below.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={st.defaultModel} onChange={(e) => void setDefault(e.target.value)} className="h-10 min-w-56 flex-1">
+              <option value="">Choose a model…</option>
+              <OllamaModelOptions models={list} saved={st.saved} current={st.defaultModel} />
+            </Select>
+            <Button loading={tests.__default === 'running'} onClick={() => test('__default', st.defaultModel, null)}>
+              Test
+            </Button>
+            <TestResult r={tests.__default} />
+          </div>
+          {error && <p className="text-[0.88rem] text-bad">{error}</p>}
+          <Field label="Add a model that isn’t listed" hint="Any model name your server accepts, e.g. one you’ve pulled locally.">
+            <div className="flex gap-2">
+              <Input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="e.g. llama3.2:3b" className="font-mono text-[0.85rem]" />
+              <Button
+                disabled={!custom.trim()}
+                onClick={async () => {
+                  await star(custom.trim(), true)
+                  setCustom('')
+                  toast('Saved. It’s now in every model list.', 'good')
+                }}
+              >
+                Save
+              </Button>
+            </div>
+          </Field>
+        </Card>
+        <Card className="!p-0 flex flex-col overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+            <div>
+              <h3 className="text-lg font-semibold">Your models</h3>
+              <p className="text-[0.9rem] text-muted">Star the ones you use. Saved models come first in every list.</p>
+            </div>
+            <Button size="sm" variant="ghost" loading={loading} onClick={() => load(true)}>
+              <RefreshCw className="size-3.5" /> Refresh
+            </Button>
+          </div>
+          <div className="border-b border-line px-5 py-2">
+            <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={`Search ${list.length} models`} className="h-9" />
+          </div>
+          <div className="max-h-72 overflow-y-auto">
+            {unlisted.map((m) => (
+              <div key={m} className="flex items-center gap-3 border-b border-line px-5 py-2">
+                <button onClick={() => star(m, false)} aria-label={`Unsave ${m}`} className="text-accent">
+                  <Star className="size-4 fill-current" />
+                </button>
+                <span className="min-w-0 flex-1 truncate font-mono text-[0.85rem]">{m}</span>
+                <Pill tone="warn">not listed</Pill>
+              </div>
+            ))}
+            {shown.length === 0 && unlisted.length === 0 && <div className="px-5 py-6 text-center text-muted">{list.length ? 'No matches' : 'No models found. Check the connection under AI provider.'}</div>}
+            {shown.map((m) => {
+              const saved = st.saved.includes(m.name)
+              return (
+                <div key={m.name} className="flex items-center gap-3 border-b border-line px-5 py-2 last:border-0">
+                  <button onClick={() => star(m.name, !saved)} aria-label={saved ? `Unsave ${m.name}` : `Save ${m.name}`} className={saved ? 'text-accent' : 'text-muted hover:text-ink'}>
+                    <Star className={cx('size-4', saved && 'fill-current')} />
+                  </button>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[0.85rem]">{m.name}</span>
+                  {caps(m).map((c) => (
+                    <Pill key={c} tone={c === 'vision' ? 'good' : 'neutral'}>
+                      {c}
+                    </Pill>
+                  ))}
+                  {st.defaultModel === m.name ? (
+                    <Pill tone="accent">default</Pill>
+                  ) : (
+                    <button onClick={() => setDefault(m.name)} className="text-[0.8rem] text-muted hover:text-ink">
+                      Make default
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      </div>
+
+      <Card className="!p-0 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+          <div>
+            <h3 className="text-lg font-semibold">Model per task</h3>
+            <p className="text-[0.9rem] text-muted">Leave a row on Default to use the default model. Decks can override any row.</p>
+          </div>
+          <Button
+            variant="ghost"
+            onClick={async () => {
+              await api.models.reset({ provider: 'ollama' })
+              setTable(await api.models.get({ provider: 'ollama' }))
+            }}
+          >
+            All on default
+          </Button>
+        </div>
+        <div className="grid grid-cols-[1.3fr_1.4fr_1fr_auto] items-center gap-x-3 border-b border-line bg-surface-2/60 px-5 py-2 text-[0.75rem] font-semibold text-muted max-md:hidden">
+          <span>Task</span>
+          <span>Model</span>
+          <span>Thinking</span>
+          <span>Test</span>
+        </div>
+        {TASKS.map((t) => {
+          const m = table[t]
+          return (
+            <div key={t} className="grid grid-cols-[1.3fr_1.4fr_1fr_auto] items-center gap-x-3 gap-y-2 border-b border-line px-5 py-2.5 last:border-0 max-md:grid-cols-1">
+              <div>
+                <div className="font-semibold">{TASK_INFO[t].label}</div>
+                <div className="font-mono text-[0.75rem] text-muted">{t}</div>
+              </div>
+              <Select value={m.model} onChange={(e) => set(t, { ...m, model: e.target.value })} className="h-9">
+                <option value="">Default{st.defaultModel ? ` (${st.defaultModel})` : ''}</option>
+                <OllamaModelOptions models={list} saved={st.saved} current={m.model} />
+              </Select>
+              <Select value={m.effort ?? ''} onChange={(e) => set(t, { ...m, effort: e.target.value || null })} className="h-9">
+                <option value="">Model default</option>
+                {OLLAMA_EFFORT_LEVELS.map((x) => (
+                  <option key={x} value={x}>
+                    {x === 'off' ? 'Off' : x}
+                  </option>
+                ))}
+              </Select>
+              <div className="flex items-center gap-2">
+                <Button size="sm" loading={tests[t] === 'running'} onClick={() => test(t, m.model || st.defaultModel, m.effort)}>
+                  Test
+                </Button>
+                <TestResult r={tests[t]} />
+              </div>
+            </div>
+          )
+        })}
+      </Card>
+    </div>
+  )
+}
+
+function ClaudeModelsTab() {
   const [models, setModels] = useState<Record<string, ModelChoice> | null>(null)
   const [tests, setTests] = useState<Record<string, { ok: boolean; reply: string; ms: number } | 'running'>>({})
-  useEffect(() => void api.models.get().then(setModels), [])
+  useEffect(() => void api.models.get({ provider: 'claude' }).then(setModels), [])
   if (!models) return <div className="skeleton h-80" />
   const set = async (task: TaskId, choice: ModelChoice) => {
     setModels({ ...models, [task]: choice })
-    await api.models.set({ task, choice })
+    await api.models.set({ task, choice, provider: 'claude' })
   }
   const test = async (task: TaskId) => {
     setTests((t) => ({ ...t, [task]: 'running' }))
-    const r = await api.models.test({ model: models[task].model, effort: models[task].effort })
+    const r = await api.models.test({ model: models[task].model, effort: models[task].effort, provider: 'claude' })
     setTests((t) => ({ ...t, [task]: r }))
   }
   return (
@@ -287,8 +630,8 @@ function ModelsTab() {
         <Button
           variant="ghost"
           onClick={async () => {
-            await api.models.reset()
-            setModels(await api.models.get())
+            await api.models.reset({ provider: 'claude' })
+            setModels(await api.models.get({ provider: 'claude' }))
           }}
         >
           Reset defaults
@@ -699,6 +1042,7 @@ const PLACEMENT_LABEL: Record<string, string> = { card: 'On cards', note_selecti
 function ActionsTab() {
   const [actions, setActions] = useState<CustomAction[]>([])
   const [edit, setEdit] = useState<Partial<CustomAction> | null>(null)
+  const aiState = useStore((s) => s.ai)
   const load = () => void api.actions.list().then(setActions)
   useEffect(load, [])
   return (
@@ -774,10 +1118,10 @@ function ActionsTab() {
               <Field label="Name" className="sm:col-span-1">
                 <Input value={edit.name ?? ''} onChange={(e) => setEdit({ ...edit, name: e.target.value })} autoFocus />
               </Field>
-              <Field label="Model">
+              <Field label="Model" hint={aiState?.provider === 'ollama' ? 'With Ollama, a Claude name here uses the Custom action model from Settings → Models.' : undefined}>
                 <Input value={edit.model ?? 'sonnet'} onChange={(e) => setEdit({ ...edit, model: e.target.value })} list="model-aliases" />
                 <datalist id="model-aliases">
-                  {MODEL_ALIASES.map((m) => (
+                  {[...MODEL_ALIASES, ...(aiState?.ollama.saved ?? [])].map((m) => (
                     <option key={m} value={m} />
                   ))}
                 </datalist>

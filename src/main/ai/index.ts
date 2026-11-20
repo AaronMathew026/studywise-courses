@@ -2,12 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type { z } from 'zod'
 import { TASK_INFO, type TaskId } from '@shared/tasks'
-import type { ModelChoice, OutputMode, Preset } from '@shared/types'
+import type { AiProvider, ModelChoice, OutputMode, Preset } from '@shared/types'
 import { renderTemplate } from '@shared/template'
 import { getPreset, defaultPreset } from './presets'
-import { modelFor } from './models'
+import { resolveModel } from './models'
 import { schemaFor, jsonSchemaFor, formatInstructions, extractJson } from './schemas'
 import { runClaude, CliError, emitRateLimit, type CliResult, type AiLiveEvent } from './cli'
+import { runOllama } from './ollama'
 import { Semaphore } from './queue'
 import { mockResponse, mockStream, mockLive } from './mock'
 import { logAiCall, getDeck, getSetting } from '../db/repo'
@@ -66,6 +67,7 @@ export interface RenderedPrompt {
   schema: Record<string, unknown> | null
   preset: Preset
   model: ModelChoice
+  provider: AiProvider
 }
 
 /** Build the exact prompt that will be sent. Used by runAI and the live preview. */
@@ -88,7 +90,14 @@ export function renderPrompt(opts: RunAIOptions): RenderedPrompt {
   // Things the template doesn't mention are appended so custom prompts can't lose them.
   const tpl = preset.user_template
   if (vars.source_text && !/\{\{\s*source_text\s*\}\}/.test(tpl)) prompt += `\n\n<source>\n${String(vars.source_text)}\n</source>`
-  if (opts.files?.length) {
+  const model = resolveModel(opts.task, opts.deckId, opts.model)
+  const provider: AiProvider = model.provider ?? 'claude'
+  if (opts.files?.length && provider === 'ollama') {
+    const names = opts.files.map((f) => basename(f)).join(', ')
+    prompt += `
+
+The source file${opts.files.length > 1 ? 's' : ''} (${names}) ${opts.files.length > 1 ? 'are' : 'is'} included at the end of this message inside <file> tags. PDF text has [page N] markers. Use all of it, including tables and figure captions.`
+  } else if (opts.files?.length) {
     const names = opts.files.map((f) => basename(f)).join(', ')
     prompt += `\n\nThe source file${opts.files.length > 1 ? 's are' : ' is'} in your current working directory: ${names}. Read ${opts.files.length > 1 ? 'them' : 'it'} with the Read tool first. Look at every page, including images, screenshots, tables and diagrams, not just the text.`
   }
@@ -106,8 +115,7 @@ export function renderPrompt(opts: RunAIOptions): RenderedPrompt {
     schema = jsonSchemaFor(opts.task)
     prompt += formatInstructions(opts.task)
   }
-  const model = opts.model ?? modelFor(opts.task, opts.deckId)
-  return { system: preset.system, prompt, mode, schema, preset, model }
+  return { system: preset.system, prompt, mode, schema, preset, model, provider }
 }
 
 function timeoutFor(task: TaskId): number {
@@ -141,6 +149,21 @@ export async function runAI<T = unknown>(opts: RunAIOptions): Promise<RunAIResul
           workDir: opts.workDir ?? '',
           raw: m.text
         }
+      } else if (r.provider === 'ollama') {
+        res = await runOllama({
+          prompt,
+          system: r.system,
+          model: r.model.model,
+          effort: r.model.effort,
+          jsonSchema: r.mode === 'json' ? r.schema ?? undefined : undefined,
+          onDelta: opts.onDelta,
+          onEvent: opts.onEvent,
+          files: resume ? undefined : opts.files,
+          resume,
+          persistSession: opts.persistSession,
+          timeoutMs,
+          signal: opts.signal
+        })
       } else {
         res = await runClaude({
           prompt,
@@ -164,7 +187,7 @@ export async function runAI<T = unknown>(opts: RunAIOptions): Promise<RunAIResul
         preset_id: r.preset.id,
         preset_name: r.preset.name,
         preset_version: r.preset.version,
-        model: r.model.model + (r.model.effort ? ` (${r.model.effort})` : ''),
+        model: modelLabel(r),
         duration_ms: Date.now() - started,
         input_tokens: res.inputTokens,
         output_tokens: res.outputTokens,
@@ -179,7 +202,7 @@ export async function runAI<T = unknown>(opts: RunAIOptions): Promise<RunAIResul
         preset_id: r.preset.id,
         preset_name: r.preset.name,
         preset_version: r.preset.version,
-        model: r.model.model,
+        model: modelLabel(r),
         duration_ms: Date.now() - started,
         input_tokens: null,
         output_tokens: null,
@@ -224,9 +247,9 @@ export async function runAI<T = unknown>(opts: RunAIOptions): Promise<RunAIResul
         try {
           parsed = parse(res)
         } catch (err) {
-          throw new Error(`Claude's reply was not valid JSON: ${(err as Error).message}`)
+          throw new Error(`${who(r)}'s reply was not valid JSON: ${(err as Error).message}`)
         }
-        if (!parsed.success) throw new Error(`Claude's reply did not match the expected format: ${parsed.error.message.slice(0, 400)}`)
+        if (!parsed.success) throw new Error(`${who(r)}'s reply did not match the expected format: ${parsed.error.message.slice(0, 400)}`)
       }
       data = parsed.data
     }
@@ -246,6 +269,13 @@ export async function runAI<T = unknown>(opts: RunAIOptions): Promise<RunAIResul
   if (opts.noQueue) return exec()
   return aiQueue.run(exec, opts.signal)
 }
+
+function modelLabel(r: RenderedPrompt): string {
+  const name = (r.provider === 'ollama' ? `ollama:${r.model.model}` : r.model.model) || '(no model)'
+  return name + (r.model.effort ? ` (${r.model.effort})` : '')
+}
+
+const who = (r: RenderedPrompt) => (r.provider === 'ollama' ? 'The model' : 'Claude')
 
 export function friendlyError(e: unknown): string {
   if (e instanceof CliError) {

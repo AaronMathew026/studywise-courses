@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ClaudeStatus, JobInfo } from '@shared/types'
+import type { AiStatus, ClaudeStatus, JobInfo } from '@shared/types'
 import type { ExplainOpen } from '../components/ExplainPanel'
 import type { PreviewCardT } from '../components/GenerateCards'
 
@@ -41,6 +41,9 @@ interface State {
 
   claude: ClaudeStatus | null
   setClaude: (s: ClaudeStatus) => void
+  /** Which AI provider is active, and Ollama's setup. */
+  ai: AiStatus | null
+  setAi: (s: AiStatus) => void
 
   jobs: JobInfo[]
   setJobs: (j: JobInfo[]) => void
@@ -105,6 +108,8 @@ export const useStore = create<State>((set, get) => ({
 
   claude: null,
   setClaude: (s) => set({ claude: s }),
+  ai: null,
+  setAi: (s) => set({ ai: s }),
 
   jobs: [],
   setJobs: (jobs) => set({ jobs }),

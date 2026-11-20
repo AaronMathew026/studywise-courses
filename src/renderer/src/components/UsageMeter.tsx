@@ -45,8 +45,9 @@ export const tone = (x: number) => (x >= 0.9 ? 'bad' : x >= 0.75 ? 'warn' : 'ok'
 export function UsageMeter() {
   const u = useUsage()
   const go = useStore((s) => s.go)
+  const provider = useStore((s) => s.ai?.provider)
   const w = u?.fiveHour
-  if (!u || !w) return null
+  if (!u || !w || provider === 'ollama') return null
   const pct = Math.round(w.utilization * 100)
   const t = tone(w.utilization)
   const fill = t === 'bad' ? 'var(--bad)' : t === 'warn' ? 'var(--warn)' : 'var(--accent)'

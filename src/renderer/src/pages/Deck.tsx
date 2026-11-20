@@ -21,7 +21,8 @@ import {
   Link2
 } from 'lucide-react'
 import type { Card as CardT, Deck, CustomAction, ModelChoice, Note } from '@shared/types'
-import { TASK_INFO, TASKS, MODEL_ALIASES, EFFORT_LEVELS } from '@shared/tasks'
+import { TASK_INFO, TASKS, MODEL_ALIASES, EFFORT_LEVELS, OLLAMA_EFFORT_LEVELS, ollamaKey } from '@shared/tasks'
+import { OllamaModelOptions, useOllamaModels } from '../components/OllamaModels'
 import { DEFAULT_THRESHOLDS } from '@shared/types'
 import { useStore, toast } from '../lib/store'
 import { api, errorText } from '../lib/api'
@@ -209,7 +210,7 @@ export function DeckPage({ id, focusCardId }: { id: string; focusCardId?: string
                     Generate cards with AI
                   </MenuItem>
                   <MenuItem kbd="io.importCards" onClick={() => (close(), importInto())}>
-                    Import cards (.txt .xlsx .csv .json)
+                    Import cards (.txt .xlsx .csv .json .apkg)
                   </MenuItem>
                   <MenuItem kbd="io.exportTxt" onClick={() => (close(), exportAs('txt'))}>
                     Export StudySmarter text
@@ -442,6 +443,9 @@ export function DeckSettings({ deck, onClose, onSaved }: { deck: Deck; onClose: 
   const [description, setDescription] = useState(deck.description)
   const [extra, setExtra] = useState(deck.extra_instructions)
   const [overrides, setOverrides] = useState<Record<string, ModelChoice>>(deck.model_overrides)
+  const ai = useStore((s) => s.ai)
+  const ollama = ai?.provider === 'ollama'
+  const { models: ollamaList } = useOllamaModels(ollama)
   const [th, setTh] = useState(deck.thresholds ?? DEFAULT_THRESHOLDS)
   const [customTh, setCustomTh] = useState(!!deck.thresholds)
   const [notes, setNotes] = useState<Omit<Note, 'content'>[]>([])
@@ -535,7 +539,36 @@ export function DeckSettings({ deck, onClose, onSaved }: { deck: Deck; onClose: 
           </div>
         </div>
         <div>
-          <div className="mb-2 text-[0.8rem] font-semibold text-muted">Model overrides for this deck</div>
+          <div className="mb-2 text-[0.8rem] font-semibold text-muted">Model overrides for this deck{ollama ? ' (Ollama)' : ''}</div>
+          {ollama ? (
+            <div className="overflow-hidden rounded-lg border border-line">
+              {TASKS.filter((t) => t !== 'custom_action').map((t) => {
+                const k = ollamaKey(t)
+                return (
+                  <div key={t} className="grid grid-cols-[1fr_180px_120px] items-center gap-2 border-b border-line px-3 py-1.5 last:border-0 max-sm:grid-cols-1">
+                    <span className="text-[0.9rem]">{TASK_INFO[t].label}</span>
+                    <Select value={overrides[k]?.model ?? ''} onChange={(e) => setOverrides({ ...overrides, [k]: { model: e.target.value, effort: overrides[k]?.effort ?? null } })} className="h-8 text-[0.85rem]">
+                      <option value="">Default</option>
+                      <OllamaModelOptions models={ollamaList ?? []} saved={ai?.ollama.saved ?? []} current={overrides[k]?.model} />
+                    </Select>
+                    <Select
+                      value={overrides[k]?.effort ?? ''}
+                      disabled={!overrides[k]?.model}
+                      onChange={(e) => setOverrides({ ...overrides, [k]: { model: overrides[k]?.model ?? '', effort: e.target.value || null } })}
+                      className="h-8 text-[0.85rem]"
+                    >
+                      <option value="">Thinking</option>
+                      {OLLAMA_EFFORT_LEVELS.map((m) => (
+                        <option key={m} value={m}>
+                          {m === 'off' ? 'Off' : m}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
           <div className="overflow-hidden rounded-lg border border-line">
             {TASKS.filter((t) => t !== 'custom_action').map((t) => (
               <div key={t} className="grid grid-cols-[1fr_140px_120px] items-center gap-2 border-b border-line px-3 py-1.5 last:border-0 max-sm:grid-cols-1">
@@ -560,6 +593,7 @@ export function DeckSettings({ deck, onClose, onSaved }: { deck: Deck; onClose: 
               </div>
             ))}
           </div>
+          )}
         </div>
       </div>
     </Modal>

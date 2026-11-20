@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { useStore, toast } from '../lib/store'
 import { api, errorText } from '../lib/api'
 import { Logo } from './GooNav'
-import { Button, Input, Kbd, cx } from './ui'
+import { Button, Input, Kbd, Select, cx } from './ui'
+import { OllamaModelOptions, useOllamaModels } from './OllamaModels'
 import { keyLabel } from '@shared/keymap'
 
 const STEPS = ['welcome', 'claude', 'level', 'deck', 'keys'] as const
@@ -92,7 +93,9 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     }
   }
 
-  const ready = !!claude?.path && claude.loggedIn
+  const ai = useStore((s) => s.ai)
+  const useOllama = ai?.provider === 'ollama'
+  const ready = useOllama ? !!ai?.ollama.ready && !!ai.ollama.defaultModel : !!claude?.path && claude.loggedIn
   const mock = !!claude?.mock
 
   return createPortal(
@@ -106,16 +109,31 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               </div>
               <h1 className="text-[2.2rem] leading-tight font-semibold tracking-[-0.03em]">Welcome to Studywise.</h1>
               <p className="mt-4 text-[1.05rem] leading-relaxed text-muted">
-                Give it your lecture PDFs. It writes the notes, makes the flashcards, quizzes you, and marks your answers. It all runs on your own Claude account, on this computer.
+                Give it your lecture PDFs. It writes the notes, makes the flashcards, quizzes you, and marks your answers. It runs on your own Claude account, or on Ollama if you prefer.
               </p>
             </div>
           )}
 
           {step === 'claude' && (
             <div>
-              <h1 className="text-[1.8rem] font-semibold tracking-[-0.025em]">Connect Claude</h1>
-              <p className="mt-3 text-muted">Studywise uses the Claude Code app you already have. Nothing is sent anywhere else.</p>
-              <div className={cx('mt-6 rounded-xl border p-4', ready || mock ? 'border-good/40 bg-good-soft' : 'border-line bg-surface')}>
+              <h1 className="text-[1.8rem] font-semibold tracking-[-0.025em]">Connect an AI</h1>
+              <p className="mt-3 text-muted">Use the Claude Code app you already have, or Ollama Cloud with an API key.</p>
+              <div className="mt-5 flex gap-1.5">
+                {(['claude', 'ollama'] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={async () => useStore.getState().setAi(await api.ai.setProvider({ provider: p }))}
+                    className={cx('rounded-full px-4 py-1.5 text-[0.92rem] font-semibold transition-colors', (ai?.provider ?? 'claude') === p ? 'bg-ink text-bg' : 'bg-surface-2 text-muted hover:text-ink')}
+                  >
+                    {p === 'claude' ? 'Claude Code' : 'Ollama Cloud'}
+                  </button>
+                ))}
+              </div>
+              {useOllama ? (
+                <OllamaSetup />
+              ) : (
+              <>
+              <div className={cx('mt-4 rounded-xl border p-4', ready || mock ? 'border-good/40 bg-good-soft' : 'border-line bg-surface')}>
                 {ready || mock ? (
                   <div>
                     <div className="font-medium text-good">{mock ? 'Mock mode: AI is simulated' : 'Connected'}</div>
@@ -141,6 +159,8 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                 <Button className="mt-4" onClick={recheck} loading={checking}>
                   Check again
                 </Button>
+              )}
+              </>
               )}
             </div>
           )}
@@ -172,7 +192,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                 {(
                   [
                     ['Make flashcards from a PDF', 'Lecture slides, notes, a chapter', pickPdf, !(ready || mock)],
-                    ['Import from StudySmarter', '.txt or .xlsx export', importDeck, false],
+                    ['Import a deck', 'Anki .apkg, or a StudySmarter .txt or .xlsx export', importDeck, false],
                     ['Try a sample deck', 'Eight physics cards, ready for Learn', sampleDeck, false]
                   ] as const
                 ).map(([title, sub, run, needsAi]) => (
@@ -184,7 +204,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                   >
                     <span>
                       <span className="block font-medium">{title}</span>
-                      <span className="block text-[0.88rem] text-muted">{needsAi ? 'Connect Claude first' : sub}</span>
+                      <span className="block text-[0.88rem] text-muted">{needsAi ? 'Connect an AI first' : sub}</span>
                     </span>
                     <span className="text-muted transition-transform duration-300 group-hover:translate-x-1">→</span>
                   </button>
@@ -246,5 +266,55 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
       </div>
     </div>,
     document.body
+  )
+}
+
+/** Ollama Cloud in two steps: paste a key, pick a default model. */
+function OllamaSetup() {
+  const ai = useStore((s) => s.ai)!
+  const setAi = useStore((s) => s.setAi)
+  const [key, setKey] = useState('')
+  const [saving, setSaving] = useState(false)
+  const { models, error, load } = useOllamaModels(ai.ollama.ready)
+  const saveKey = async () => {
+    setSaving(true)
+    try {
+      await api.ollama.setConfig({ apiKey: key.trim() })
+      setAi(await api.ai.status())
+      setKey('')
+      await load(true)
+    } catch (e) {
+      toast(errorText(e), 'bad')
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <div className="mt-4 flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 text-[0.95rem]">
+      {!ai.ollama.ready ? (
+        <>
+          <div className="font-medium">Paste your Ollama API key</div>
+          <div className="text-[0.88rem] text-muted">Create one at ollama.com/settings/keys. It’s stored encrypted on this computer.</div>
+          <div className="flex gap-2">
+            <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Ollama API key" autoComplete="off" onKeyDown={(e) => e.key === 'Enter' && key.trim() && (e.stopPropagation(), void saveKey())} />
+            <Button variant="primary" disabled={!key.trim()} loading={saving} onClick={saveKey}>
+              Save
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="font-medium text-good">Key saved</div>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[0.88rem] text-muted">Default model (you can set one per task later in Settings → Models)</span>
+            <Select value={ai.ollama.defaultModel} onChange={async (e) => setAi({ ...ai, ollama: await api.ollama.setDefault({ model: e.target.value }) })}>
+              <option value="">{models ? 'Choose a model…' : 'Loading models…'}</option>
+              <OllamaModelOptions models={models ?? []} saved={ai.ollama.saved} current={ai.ollama.defaultModel} />
+            </Select>
+          </label>
+          {error && <div className="text-[0.88rem] text-bad">{error}</div>}
+        </>
+      )}
+    </div>
   )
 }
