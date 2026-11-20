@@ -18,6 +18,7 @@ import * as learn from './services/learn'
 import * as updates from './updater'
 import * as explain from './services/explain'
 import * as course from './services/course'
+import * as weekShare from './services/weekShare'
 import { CourseQuestion } from '@shared/course'
 import * as io from './importexport'
 import { backupLibrary, restoreLibrary } from './backup'
@@ -439,7 +440,23 @@ export const handlers = {
       z.object({ courseId: id, extra_instructions: z.string().max(10000), model_overrides: z.record(z.string(), ModelChoice), thresholds: Thresholds.nullable() }),
       (i) => course.setCourseDeckSettings(i.courseId, { extra_instructions: i.extra_instructions, model_overrides: i.model_overrides, thresholds: i.thresholds })
     ),
-    delete: h(z.object({ id, keepDeck: z.boolean().default(false) }), (i) => course.deleteCourse(i.id, i.keepDeck))
+    delete: h(z.object({ id, keepDeck: z.boolean().default(false) }), (i) => course.deleteCourse(i.id, i.keepDeck)),
+    /** One week as a .studyweek file to send to someone. */
+    exportWeek: h(z.object({ weekId: id }), async (i, ctx) => {
+      const c = course.getCourse(course.getCourseIdForWeek(i.weekId))
+      const w = c.weeks.find((x) => x.id === i.weekId)!
+      const file = await pickSave(winOf(ctx), weekShare.weekFileName(c.name, w.label), [{ name: 'Shared Studywise week', extensions: [weekShare.WEEK_EXT] }])
+      if (!file) return null
+      return { file, ...(await weekShare.exportWeek(i.weekId, file)) }
+    }),
+    /** Pick a shared week (unless given) and say what's in it. */
+    previewWeek: h(z.object({ file: z.string().optional() }).optional(), async (i, ctx) => {
+      const [file] = i?.file ? [i.file] : await pickFiles(winOf(ctx), [{ name: 'Shared Studywise week', extensions: [weekShare.WEEK_EXT] }], false)
+      if (!file) return null
+      return { file, ...(await weekShare.previewWeek(file)) }
+    }),
+    /** Add a shared week to one of your courses, or to a new course. */
+    importWeek: h(z.object({ file: z.string().min(1), courseId: z.string().nullable() }), (i) => weekShare.importWeek(i.file, i.courseId ? { courseId: i.courseId } : { newCourse: true }))
   },
 
   jobs: {

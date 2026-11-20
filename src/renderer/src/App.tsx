@@ -2,6 +2,7 @@ import { useEffect, useState, lazy, Suspense } from 'react'
 import { AlertTriangle, X, FileUp, NotebookPen, Layers, Terminal, GraduationCap, Download } from 'lucide-react'
 import type { UpdateStatus } from '@shared/update'
 import { planUsageText } from '@shared/types'
+import { importSharedWeek } from './lib/weekShare'
 
 /** Jobs already announced as done, and those whose plan usage was shown. */
 const announced = new Set<string>()
@@ -306,6 +307,9 @@ export function App() {
       setDragging(false)
       const all = [...(e.dataTransfer?.files ?? [])].map((f) => window.studywise.pathForFile(f))
       // A library export dropped on the window is imported (added to this library).
+      // A week a friend shared: ask which course it goes in.
+      const week = all.find((p) => /\.studyweek$/i.test(p))
+      if (week) return void importSharedWeek({ file: week })
       const lib = all.find((p) => /\.studywise$/i.test(p))
       if (lib) {
         void confirmDialog('Import this library?', 'Its decks, notes and courses are added to yours. Nothing is replaced.', { confirmText: 'Import' }).then(async (ok) => {
@@ -413,6 +417,10 @@ const isAnki = (p: string) => /\.(apkg|colpkg)$/i.test(p)
 /** Anki packages import straight away as decks; anything else asks what to make. */
 function openFiles(paths: string[]) {
   const st = useStore.getState()
+  // A shared week opened with the app (or dropped on its Dock icon).
+  const week = paths.find((p) => /\.studyweek$/i.test(p))
+  if (week) void importSharedWeek({ file: week })
+  paths = paths.filter((p) => !/\.studyweek$/i.test(p))
   const decks = paths.filter(isAnki)
   const rest = paths.filter((p) => !isAnki(p))
   if (rest.length) st.setDropFiles(rest)
