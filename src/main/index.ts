@@ -121,6 +121,11 @@ function createWindow(): void {
   // No traffic lights in fullscreen, so the nav can drop its left inset.
   mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('sw:event', { type: 'fullscreen', on: true }))
   mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('sw:event', { type: 'fullscreen', on: false }))
+  // Windows: the mouse's back/forward buttons (and keyboard media keys) move through history.
+  mainWindow.on('app-command', (_e, cmd) => {
+    if (cmd === 'browser-backward') mainWindow?.webContents.send('sw:event', { type: 'menu', action: 'go.back' })
+    if (cmd === 'browser-forward') mainWindow?.webContents.send('sw:event', { type: 'menu', action: 'go.forward' })
+  })
   trackWindowState(mainWindow)
   mainWindow.once('ready-to-show', () => mainWindow?.show())
   mainWindow.on('closed', () => {

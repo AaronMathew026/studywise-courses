@@ -579,7 +579,7 @@ h1, h2, h3 {
 }
 /* Windows: no traffic lights on the left, caption buttons on the right. */
 :root.is-win .nav-inset {
-  padding-left: 16px;
+  padding-left: 10px;
   padding-right: 150px;
 }
 
