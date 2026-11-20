@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react'
+import { forwardRef, useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Loader2 } from 'lucide-react'
 import { twMerge } from 'tailwind-merge'
@@ -128,14 +128,22 @@ export function Field({ label, hint, children, className }: { label: ReactNode; 
 
 export function Segmented<T extends string>({ value, onChange, options, className }: { value: T; onChange: (v: T) => void; options: { value: T; label: ReactNode }[]; className?: string }) {
   const ref = useRef<HTMLDivElement>(null)
-  const [pill, setPill] = useState<{ left: number; width: number } | null>(null)
-  useEffect(() => {
-    const el = ref.current?.querySelector<HTMLElement>(`[data-v="${CSS.escape(value)}"]`)
-    if (el) setPill({ left: el.offsetLeft, width: el.offsetWidth })
+  const [pill, setPill] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
+  useLayoutEffect(() => {
+    const box = ref.current
+    if (!box) return
+    const measure = () => {
+      const el = box.querySelector<HTMLElement>(`[data-v="${CSS.escape(value)}"]`)
+      if (el) setPill({ left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight })
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(box)
+    return () => ro.disconnect()
   }, [value, options.length])
   return (
     <div ref={ref} className={cx('relative inline-flex flex-wrap rounded-lg bg-surface-2 p-0.5', className)}>
-      {pill && <span className="absolute top-0.5 bottom-0.5 rounded-md bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition-all duration-300 ease-out-soft" style={{ left: pill.left, width: pill.width }} />}
+      {pill && <span className="absolute rounded-md bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition-[left,top,width,height] duration-300 ease-out-soft" style={pill} />}
       {options.map((o) => (
         <button
           key={o.value}
