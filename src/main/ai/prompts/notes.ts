@@ -6,6 +6,13 @@ export const MY_NOTES = `Write study notes on the attached source in my personal
 
 The note's title is {{title}}. Metadata (Module {{module}}, Type {{type}}, Week {{week}}) is stored separately, so don't write it in the body.
 
+MAKE IT EASY TO GET
+- Assume I haven't studied this yet. Say what something means in everyday words first, then the proper term or definition.
+- Say why it matters (what problem it solves, or what goes wrong without it), not just what it is.
+- Simplify complicated examples to the smallest version that shows the point, walk through it step by step, and say what the lesson is. Skip implementation details nobody needs to memorise.
+- Flag the usual mistake with "Common mistake:" where there is one.
+- Simpler never means leaving things out: everything examinable still goes in.
+
 VOICE
 - Plain, simple and casual, like explaining to a classmate. Use "you" and "we".
 - Short lines and fragments. Lines often start lowercase and usually have no full stop.
@@ -34,7 +41,7 @@ STRUCTURE
 - Name authors and what they argue ("Thorpe's main argument is that...", "Pirolli suggested three important ideas:").
 - After a section, add a one-line takeaway where it helps: "The trade off is that:", "The main benefit is... and the main disadvantage is...", "Remember: ...", "IMPORTANT CONNECTION:", or a short bold line such as "**Passing tests is evidence of correctness, not proof**".
 - Never write "see diagram". Turn every diagram, figure, table and image in the source into words, a list or a table (what the boxes, arrows, axes and labels show).
-- End with the source's limitations, future research or open questions if it has any. No summary paragraph at the end.
+- End with the source's limitations, future research or open questions if it has any, then a "## Quick exam summary:" of 3–6 short bullets: the things to be able to say or do in the exam. No other summary.
 
 STYLE EXAMPLE (match this feel, not this content)
 ## Cue vs Information Scent:
