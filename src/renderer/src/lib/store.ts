@@ -15,7 +15,8 @@ export type Route =
   | { name: 'jobs' }
   | { name: 'courses' }
   | { name: 'course'; id: string }
-  | { name: 'topic'; id: string }
+  /** test: take the topic's test (its check questions) instead of learning it. */
+  | { name: 'topic'; id: string; test?: boolean }
 
 export interface Toast {
   id: number

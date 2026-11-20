@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { SlidersHorizontal, Sparkles, Play, RotateCcw, CheckCircle2, AlertTriangle, FileText, Layers, MoreHorizontal, Pencil, Trash2, Upload, NotebookPen, RefreshCw, Clock, Plus, X } from 'lucide-react'
+import { SlidersHorizontal, Sparkles, Play, RotateCcw, CheckCircle2, AlertTriangle, FileText, Layers, MoreHorizontal, Pencil, Trash2, Upload, NotebookPen, RefreshCw, Clock, Plus, X, ClipboardCheck } from 'lucide-react'
 import type { CourseFull, Topic, WeekFull } from '@shared/course'
 import type { JobInfo } from '@shared/types'
 import { useStore, toast } from '../lib/store'
@@ -365,9 +365,9 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
             <Clock className="size-3.5" /> {t.plan.minutes} min
           </span>
         )}
-        {p.done && p.checkTotal ? (
-          <Pill tone="good">
-            Check {p.checkScore}/{p.checkTotal}
+        {p.checkTotal ? (
+          <Pill tone={p.checkScore != null && p.checkScore / p.checkTotal >= 0.8 ? 'good' : 'warn'}>
+            Test {p.checkScore}/{p.checkTotal}
           </Pill>
         ) : null}
         {t.status === 'ready' ? (
@@ -375,6 +375,11 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
             <Button size="sm" variant={p.done ? 'ghost' : 'soft'} onClick={() => go({ name: 'topic', id: t.id })}>
               {p.done ? <RotateCcw className="size-4" /> : <Play className="size-4" />} {p.done ? 'Again' : p.section > 0 ? 'Continue' : 'Start'}
             </Button>
+            {!!t.content?.check.length && (
+              <Button size="sm" variant="ghost" onClick={() => go({ name: 'topic', id: t.id, test: true })} title={`Topic test: ${t.content.check.length} questions, from memory`}>
+                <ClipboardCheck className="size-4" /> Test
+              </Button>
+            )}
             <Menu
               trigger={(open) => (
                 <Button size="icon" variant="ghost" onClick={open} aria-label="Topic options">

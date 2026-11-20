@@ -387,7 +387,7 @@ function Page({ route }: { route: Route }) {
     case 'course':
       return <CoursePage id={route.id} />
     case 'topic':
-      return <TopicPage id={route.id} />
+      return <TopicPage key={`${route.id}:${route.test ? 'test' : 'learn'}`} id={route.id} test={!!route.test} />
   }
 }
 
