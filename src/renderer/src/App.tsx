@@ -71,6 +71,7 @@ export function App() {
         }
       }
       useStore.getState().setClaude(await api.claude.status())
+      useStore.getState().setAi(await api.ai.status())
       useStore.getState().setJobs(await api.jobs.list())
       if (!s['onboarding.done']) setOnboarding(true)
       setReady(true)
@@ -103,7 +104,7 @@ export function App() {
         const st = useStore.getState()
         if (ev.type === 'fullscreen') document.documentElement.classList.toggle('is-fullscreen', ev.on)
         if (ev.type === 'claude:status') st.setClaude(ev.status)
-        if (ev.type === 'open-files') st.setDropFiles(ev.paths)
+        if (ev.type === 'open-files') openFiles(ev.paths)
         if (ev.type === 'job') {
           const j = ev.job
           st.upsertJob(j)
@@ -285,8 +286,8 @@ export function App() {
       e.preventDefault()
       depth = 0
       setDragging(false)
-      const files = [...(e.dataTransfer?.files ?? [])].map((f) => window.studywise.pathForFile(f)).filter((p) => /\.(pdf|docx|pptx|txt|md|markdown|vtt|srt)$/i.test(p))
-      if (files.length) useStore.getState().setDropFiles(files)
+      const files = [...(e.dataTransfer?.files ?? [])].map((f) => window.studywise.pathForFile(f)).filter((p) => /\.(pdf|docx|pptx|txt|md|markdown|vtt|srt|apkg|colpkg)$/i.test(p))
+      if (files.length) openFiles(files)
     }
     window.addEventListener('dragenter', enter)
     window.addEventListener('dragleave', leave)
@@ -372,10 +373,59 @@ function Page({ route }: { route: Route }) {
   }
 }
 
+const isAnki = (p: string) => /\.(apkg|colpkg)$/i.test(p)
+
+/** Anki packages import straight away as decks; anything else asks what to make. */
+function openFiles(paths: string[]) {
+  const st = useStore.getState()
+  const decks = paths.filter(isAnki)
+  const rest = paths.filter((p) => !isAnki(p))
+  if (rest.length) st.setDropFiles(rest)
+  if (!decks.length) return
+  st.toast(`Importing ${decks.length === 1 ? decks[0].split(/[\\/]/).pop() : `${decks.length} Anki packages`}…`)
+  api.io
+    .importDeck({ files: decks })
+    .then((ids) => {
+      if (!ids.length) return
+      st.toast(`Imported ${ids.length} deck${ids.length === 1 ? '' : 's'} from Anki`, 'good')
+      st.bump()
+      if (!rest.length) st.go({ name: 'deck', id: ids[0] })
+    })
+    .catch((e) => st.toast(errorText(e), 'bad'))
+}
+
+function OllamaBanner({ problem, onHide }: { problem: string; onHide: () => void }) {
+  return (
+    <div className="pop-in mx-3 mt-2.5 flex flex-wrap items-center gap-3 rounded-xl border border-warn/40 bg-warn-soft px-4 py-3 sm:mx-4">
+      <AlertTriangle className="size-5 shrink-0 text-warn" />
+      <div className="min-w-0 flex-1 text-[0.92rem]">
+        <div className="font-semibold">Ollama isn’t set up yet</div>
+        <div className="text-muted">{problem}</div>
+      </div>
+      <Button size="sm" variant="ink" onClick={() => useStore.getState().go({ name: 'settings', tab: problem.includes('model') ? 'models' : 'claude' })}>
+        Open settings
+      </Button>
+      <button onClick={onHide} className="text-muted hover:text-ink" aria-label="Dismiss">
+        <X className="size-4" />
+      </button>
+    </div>
+  )
+}
+
 function SetupBanner() {
   const claude = useStore((s) => s.claude)
+  const ai = useStore((s) => s.ai)
   const [hidden, setHidden] = useState(false)
   const [checking, setChecking] = useState(false)
+  if (ai?.provider === 'ollama') {
+    if (hidden || claude?.mock) return null
+    const problem = !ai.ollama.ready
+      ? 'Add your Ollama API key in Settings → AI provider. You can create one at ollama.com/settings/keys.'
+      : !ai.ollama.defaultModel
+        ? 'Choose a default model in Settings → Models.'
+        : null
+    return problem ? <OllamaBanner problem={problem} onHide={() => setHidden(true)} /> : null
+  }
   if (!claude || hidden || claude.mock || (claude.path && claude.loggedIn)) return null
   return (
     <div className="pop-in mx-3 mt-2.5 flex flex-wrap items-center gap-3 rounded-xl border border-warn/40 bg-warn-soft px-4 py-3 sm:mx-4">

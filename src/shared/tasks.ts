@@ -220,6 +220,10 @@ export const TASK_INFO: Record<TaskId, TaskInfo> = {
 
 export const MODEL_ALIASES = ['haiku', 'sonnet', 'opus'] as const
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+/** Ollama's `think` option: off, or a level (non-gpt-oss models treat any level as on). */
+export const OLLAMA_EFFORT_LEVELS = ['off', 'low', 'medium', 'high'] as const
+/** Deck override keys for Ollama rows are prefixed so both providers' overrides can coexist. */
+export const ollamaKey = (task: string) => `ollama:${task}`
 
 export const ALL_VARIABLES = [
   'front',

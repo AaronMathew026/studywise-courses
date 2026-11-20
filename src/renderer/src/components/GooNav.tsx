@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { keyLabel } from '@shared/keymap'
-import { Search, Plus } from 'lucide-react'
+import { keyLabel, IS_MAC } from '@shared/keymap'
+import { Search, Plus, ArrowLeft } from 'lucide-react'
 import { useStore, type Route } from '../lib/store'
 import { cx, Kbd } from './ui'
 import { runCommand } from '../lib/commands'
@@ -24,6 +24,7 @@ export function GooNav() {
   const go = useStore((s) => s.go)
   const jobs = useStore((s) => s.jobs)
   const running = jobs.filter((j) => j.status === 'running').length
+  const canGoBack = useStore((s) => s.back.length > 0)
   const linksRef = useRef<HTMLDivElement>(null)
   const blobs = useRef<(HTMLDivElement | null)[]>([])
   const [hovering, setHovering] = useState(false)
@@ -64,6 +65,23 @@ export function GooNav() {
     return () => window.removeEventListener('resize', onResize)
   }, [activeIdx, place])
 
+  // Windows convention: Alt+← / Alt+→ go back and forward.
+  useEffect(() => {
+    if (IS_MAC) return
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        useStore.getState().goBack()
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        useStore.getState().goForward()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const navTo = (r: Route) => {
     go(r)
     setOpen(false)
@@ -72,6 +90,19 @@ export function GooNav() {
   return (
     <header className={cx('drag relative z-30 shrink-0 border-b border-line bg-nav backdrop-blur-xl', open && 'is-open')}>
       <nav className="nav-inset relative flex h-[var(--nav-h)] items-center gap-3 pr-3 sm:pr-4">
+        {/* On Windows the caption buttons are on the right, so the left corner
+            (where macOS has its traffic lights) holds the back button. */}
+        {!IS_MAC && (
+          <button
+            onClick={() => useStore.getState().goBack()}
+            disabled={!canGoBack}
+            aria-label="Back"
+            title="Back (Alt+←)"
+            className="no-drag -mr-1 grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-[background,color,transform] duration-200 hover:bg-surface-2 hover:text-ink active:scale-95 disabled:pointer-events-none disabled:opacity-35"
+          >
+            <ArrowLeft className="size-[18px]" />
+          </button>
+        )}
         <button onClick={() => navTo({ name: 'home' })} className="no-drag flex items-center gap-2 pr-2">
           <Logo />
           <span className="hidden text-[0.95rem] font-semibold tracking-[-0.01em] sm:inline">Studywise Courses</span>

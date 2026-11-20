@@ -14,6 +14,9 @@ import { loadWindowState, trackWindowState } from './windowState'
 import { onJobEvent, runningJobCount } from './jobs'
 import * as repo from './db/repo'
 import { SUPPORTED_SOURCE_EXT } from './files'
+
+// Files the app accepts from Open With / the command line: sources plus Anki packages.
+const OPENABLE_EXT = [...SUPPORTED_SOURCE_EXT, '.apkg', '.colpkg']
 import { startUsageTracking, onUsage } from './usage'
 
 // ---- logging to ~/Library/Application Support/Studywise/logs/main.log ----
@@ -54,7 +57,7 @@ if (!gotLock) {
   app.quit()
 } else {
   app.on('second-instance', (_e, argv) => {
-    const files = argv.filter((a) => SUPPORTED_SOURCE_EXT.includes(extname(a).toLowerCase()))
+    const files = argv.filter((a) => OPENABLE_EXT.includes(extname(a).toLowerCase()))
     if (files.length) openFiles(files)
     showWindow()
   })
@@ -118,6 +121,11 @@ function createWindow(): void {
   // No traffic lights in fullscreen, so the nav can drop its left inset.
   mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('sw:event', { type: 'fullscreen', on: true }))
   mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('sw:event', { type: 'fullscreen', on: false }))
+  // Windows: the mouse's back/forward buttons (and keyboard media keys) move through history.
+  mainWindow.on('app-command', (_e, cmd) => {
+    if (cmd === 'browser-backward') mainWindow?.webContents.send('sw:event', { type: 'menu', action: 'go.back' })
+    if (cmd === 'browser-forward') mainWindow?.webContents.send('sw:event', { type: 'menu', action: 'go.forward' })
+  })
   trackWindowState(mainWindow)
   mainWindow.once('ready-to-show', () => mainWindow?.show())
   mainWindow.on('closed', () => {
@@ -195,7 +203,7 @@ app.whenReady().then(async () => {
   setupLogging()
   if (!IS_MAC) {
     // Windows passes "Open with" files on the command line.
-    pendingFiles.push(...process.argv.slice(1).filter((a) => SUPPORTED_SOURCE_EXT.includes(extname(a).toLowerCase())))
+    pendingFiles.push(...process.argv.slice(1).filter((a) => OPENABLE_EXT.includes(extname(a).toLowerCase())))
     nativeTheme.on('updated', () => mainWindow?.setTitleBarOverlay?.(overlayColors()))
   }
   app.setAboutPanelOptions({

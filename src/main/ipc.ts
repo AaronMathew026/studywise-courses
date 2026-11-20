@@ -8,6 +8,8 @@ import * as presets from './ai/presets'
 import * as models from './ai/models'
 import { runAI, renderPrompt, friendlyError, aiQueue, isMock } from './ai'
 import { detectClaude, getClaudeStatus, setOverridePath } from './ai/claudePath'
+import * as ollama from './ai/ollama'
+import * as anki from './anki'
 import { startJob, cancelJob, listJobs, clearFinishedJobs, getJob } from './jobs'
 import * as gen from './services/generate'
 import * as learn from './services/learn'
@@ -25,6 +27,7 @@ import {
   McOption,
   CardSource,
   ModelChoice,
+  AiProvider,
   LearnSettings,
   Thresholds,
   CustomAction,
@@ -120,8 +123,40 @@ async function pickSave(win: BrowserWindow | null, defaultPath: string, filters:
 const winOf = (ctx: Ctx) => BrowserWindow.fromWebContents(ctx.sender)
 const safeName = (s: string) => s.replace(/[/\\:*?"<>|]+/g, '-').trim() || 'export'
 
+function saveImportedImage(name: string, data: Buffer): string {
+  mkdirSync(paths.attachments, { recursive: true })
+  const fname = `${randomUUID()}${extname(name).toLowerCase() || '.png'}`
+  writeFileSync(join(paths.attachments, fname), data)
+  return `studywise-file://attachments/${fname}`
+}
+
+/** Anki package → decks. With intoDeckId everything goes into that deck; otherwise
+ * one deck per Anki deck (in a folder named after the file when there are several). */
+async function importAnki(file: string, intoDeckId: string | null): Promise<{ deckIds: string[]; cards: number; skipped: number }> {
+  const pkg = await anki.readAnkiPackage(file, { keepSchedule: repo.getSetting<boolean>('anki.keepSchedule', true), saveImage: saveImportedImage })
+  if (!pkg.decks.length) throw new Error(`No cards found in ${basename(file)}${pkg.skipped ? ` (${pkg.skipped} couldn’t be converted)` : ''}`)
+  const folder = !intoDeckId && pkg.decks.length > 1 ? repo.createFolder(anki.ankiStem(file), 'deck') : null
+  const deckIds: string[] = []
+  let total = 0
+  for (const d of pkg.decks) {
+    const deckId = intoDeckId ?? repo.createDeck({ name: d.name, folder_id: folder?.id ?? null }).id
+    if (!deckIds.includes(deckId)) deckIds.push(deckId)
+    const created = repo.createCards(d.cards.map((c) => ({ ...c.input, deck_id: deckId })))
+    created.forEach((card, i) => {
+      const s = d.cards[i].schedule
+      if (s) repo.writeReviewState({ ...s, card_id: card.id })
+    })
+    total += created.length
+  }
+  if (pkg.skipped) console.warn(`[anki] ${basename(file)}: skipped ${pkg.skipped} cards that couldn't be converted`)
+  return { deckIds, cards: total, skipped: pkg.skipped }
+}
+
+const CARD_EXTENSIONS = ['txt', 'xlsx', 'csv', 'json', 'apkg', 'colpkg']
+
 async function importCardsFromFile(file: string, deckId: string): Promise<number> {
   const ext = extname(file).toLowerCase()
+  if (anki.isAnkiFile(file)) return (await importAnki(file, deckId)).cards
   let cards: z.input<typeof CardInput>[]
   if (ext === '.xlsx') cards = await io.cardsFromXlsx(file, deckId)
   else if (ext === '.csv') cards = io.cardsFromCsv(readFileSync(file, 'utf8'), deckId)
@@ -182,7 +217,7 @@ export const handlers = {
       const filters: Record<string, Electron.FileFilter[]> = {
         sources: [{ name: 'Documents', extensions: ['pdf', 'docx', 'pptx', 'txt', 'md', 'markdown'] }],
         course: [{ name: 'Slides, transcripts and readings', extensions: course.COURSE_SOURCE_EXT.map((e) => e.slice(1)) }],
-        cards: [{ name: 'Cards', extensions: ['txt', 'xlsx', 'csv', 'json'] }],
+        cards: [{ name: 'Cards', extensions: CARD_EXTENSIONS }],
         notes: [{ name: 'Notes', extensions: ['md', 'markdown', 'txt', 'zip', 'pdf'] }]
       }
       return pickFiles(winOf(ctx), filters[kind])
@@ -190,8 +225,9 @@ export const handlers = {
   },
 
   settings: {
-    all: h(none, () => repo.allSettings()),
-    set: h(z.object({ key: z.string().regex(/^[\w.]+$/), value: z.unknown() }), ({ key, value }) => {
+    // secret.* (the Ollama key) never goes to the page.
+    all: h(none, () => Object.fromEntries(Object.entries(repo.allSettings()).filter(([k]) => !k.startsWith('secret.')))),
+    set: h(z.object({ key: z.string().regex(/^[\w.]+$/).refine((k) => !k.startsWith('secret.'), 'reserved key'), value: z.unknown() }), ({ key, value }) => {
       repo.setSetting(key, value)
       if (key === 'ai.concurrency') aiQueue.setLimit(Number(value) || 3)
       return true
@@ -474,13 +510,14 @@ export const handlers = {
   },
 
   models: {
-    get: h(none, () => models.globalModels()),
-    set: h(z.object({ task: z.enum(TASKS), choice: ModelChoice }), (i) => models.setGlobalModel(i.task, i.choice)),
-    reset: h(none, () => models.resetGlobalModels()),
-    test: h(z.object({ model: z.string().min(1), effort: z.string().nullable().optional() }), async (i) => {
+    get: h(z.object({ provider: AiProvider.optional() }).optional(), (i) => models.globalModels(i?.provider)),
+    set: h(z.object({ task: z.enum(TASKS), choice: ModelChoice, provider: AiProvider.optional() }), (i) => models.setGlobalModel(i.task, i.choice, i.provider)),
+    reset: h(z.object({ provider: AiProvider.optional() }).optional(), (i) => models.resetGlobalModels(i?.provider)),
+    test: h(z.object({ model: z.string().min(1), effort: z.string().nullable().optional(), provider: AiProvider.optional() }), async (i) => {
       const started = Date.now()
       try {
-        const r = await runAI<string>({ task: 'note_simplify', vars: { source_text: 'Reply with exactly: ok', title: 'test', instructions: 'Reply with the single word ok.' }, model: { model: i.model, effort: i.effort ?? null } })
+        const provider = i.provider ?? models.activeProvider()
+        const r = await runAI<string>({ task: 'note_simplify', vars: { source_text: 'Reply with exactly: ok', title: 'test', instructions: 'Reply with the single word ok.' }, model: { model: i.model, effort: i.effort ?? null, provider } })
         return { ok: true, reply: r.text.slice(0, 200), ms: Date.now() - started }
       } catch (e) {
         return { ok: false, reply: friendlyError(e), ms: Date.now() - started }
@@ -488,13 +525,45 @@ export const handlers = {
     })
   },
 
+  ollama: {
+    status: h(none, () => ollama.ollamaStatus()),
+    /** apiKey: a string sets it, null removes it, undefined leaves it alone. */
+    setConfig: h(z.object({ baseUrl: z.string().max(500).optional(), apiKey: z.string().max(500).nullable().optional(), numCtx: z.number().int().min(2048).max(1_048_576).optional() }), (i) => {
+      if (i.baseUrl !== undefined) {
+        const url = i.baseUrl.trim() || ollama.OLLAMA_CLOUD_URL
+        if (!/^https?:\/\/[^\s/]+/i.test(url)) throw new Error('The Ollama address should start with http:// or https://')
+        repo.setSetting('ollama.baseUrl', url)
+      }
+      if (i.apiKey !== undefined) ollama.setOllamaKey(i.apiKey)
+      if (i.numCtx !== undefined) repo.setSetting('ollama.numCtx', i.numCtx)
+      return ollama.ollamaStatus()
+    }),
+    models: h(z.object({ refresh: z.boolean().optional() }).optional(), (i) => ollama.listOllamaModels(!!i?.refresh)),
+    /** Star or unstar a model. Starred models are listed first everywhere. */
+    saveModel: h(z.object({ model: z.string().min(1).max(200), saved: z.boolean() }), (i) => {
+      const cur = repo.getSetting<string[]>('ollama.savedModels', []).filter((m) => m !== i.model)
+      repo.setSetting('ollama.savedModels', i.saved ? [...cur, i.model] : cur)
+      return ollama.ollamaStatus()
+    }),
+    setDefault: h(z.object({ model: z.string().max(200) }), (i) => {
+      repo.setSetting('ollama.defaultModel', i.model.trim())
+      return ollama.ollamaStatus()
+    })
+  },
+
   ai: {
+    status: h(none, () => ({ provider: models.activeProvider(), ollama: ollama.ollamaStatus() })),
+    setProvider: h(z.object({ provider: AiProvider }), (i) => {
+      models.setActiveProvider(i.provider)
+      return { provider: models.activeProvider(), ollama: ollama.ollamaStatus() }
+    }),
     calls: h(z.object({ limit: z.number().int().min(1).max(2000).optional() }).optional(), (i) => repo.listAiCalls(i?.limit ?? 300)),
     summary: h(none, () => repo.aiUsageSummary()),
     queue: h(none, () => ({ running: aiQueue.running, waiting: aiQueue.waiting })),
     limits: h(none, () => getUsage()),
     /** One tiny Haiku call, just to get fresh plan-usage numbers. */
     refreshLimits: h(none, async () => {
+      if (models.activeProvider() !== 'claude') return getUsage()
       await runAI({ task: 'hint', vars: { front: 'ping', back: 'pong', question: 'ping', type: 'free_answer', previous_hints: '(none)' }, model: { model: 'haiku', effort: null } })
       return getUsage()
     })
@@ -502,15 +571,19 @@ export const handlers = {
 
   io: {
     importCards: h(z.object({ deckId: id, files: z.array(z.string()).optional() }), async (i, ctx) => {
-      const files = i.files?.length ? i.files : await pickFiles(winOf(ctx), [{ name: 'Cards', extensions: ['txt', 'xlsx', 'csv', 'json'] }])
+      const files = i.files?.length ? i.files : await pickFiles(winOf(ctx), [{ name: 'Cards', extensions: CARD_EXTENSIONS }])
       let n = 0
       for (const f of files) n += await importCardsFromFile(f, i.deckId)
       return n
     }),
-    importDeck: h(none, async (_i, ctx) => {
-      const files = await pickFiles(winOf(ctx), [{ name: 'Cards', extensions: ['txt', 'xlsx', 'csv', 'json'] }])
+    importDeck: h(z.object({ files: z.array(z.string()).max(200).optional() }).optional(), async (i, ctx) => {
+      const files = i?.files?.length ? i.files : await pickFiles(winOf(ctx), [{ name: 'Cards (StudySmarter, Anki, CSV, JSON)', extensions: CARD_EXTENSIONS }])
       const created: string[] = []
       for (const f of files) {
+        if (anki.isAnkiFile(f)) {
+          created.push(...(await importAnki(f, null)).deckIds)
+          continue
+        }
         let name = basename(f, extname(f))
         if (extname(f).toLowerCase() === '.json') {
           try {

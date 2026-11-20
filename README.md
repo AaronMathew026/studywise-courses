@@ -6,7 +6,7 @@ Make a course for a module, then add each week's slides, transcripts and reading
 
 It also keeps everything from Studywise: give it a lecture PDF and it makes notes and flashcards, then quizzes you and marks your answers.
 
-It uses Claude Code on your computer, so you need a Claude account.
+It uses Claude Code on your computer (you need a Claude account), or Ollama: its cloud models with an API key, or models on your own Ollama server. You can import Anki decks (`.apkg`) and study them like any other deck.
 
 ![Studywise](docs/screenshots/home.png)
 
@@ -23,6 +23,8 @@ Install Claude Code and log in:
 npm install -g @anthropic-ai/claude-code
 claude
 ```
+
+Or use Ollama instead: open Settings → AI provider, pick Ollama, paste an API key from [ollama.com/settings/keys](https://ollama.com/settings/keys), then choose your models in Settings → Models.
 
 Then build the app:
 

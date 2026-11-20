@@ -27,6 +27,14 @@ Calls run three at a time, time out after 120 seconds (15 minutes for generation
 
 Long jobs (generating notes or cards) run in the main process. Closing the window doesn't stop them, you get a notification when one finishes, and the Jobs page can cancel them.
 
+## Using Ollama instead
+
+Settings → AI provider switches every AI feature between Claude Code and Ollama. Ollama means Ollama Cloud (`https://ollama.com`, with an API key) or your own server (`http://localhost:11434`, which can also run `-cloud` models when you're signed in). The key is encrypted with the OS keychain (DPAPI on Windows), stored in the database as `secret.ollamaKey`, and never sent to the page. `OLLAMA_API_KEY` works too.
+
+Calls go to `/api/chat`, streamed. Files can't be handed over as tools, so they're read in the app: text goes in `<file>` blocks (PDFs with `[page N]` markers), and PDFs with no text layer are sent as page images (24 at most), which needs a model with the `vision` capability. Cloud models don't support structured output, so JSON tasks rely on the schema in the prompt plus the usual zod check and one retry; local models also get `format` set to the schema and a bigger `num_ctx` (32k by default, changeable). Auto-continue keeps the conversation in memory. Thinking/effort maps to Ollama's `think` option: off, or low/medium/high (gpt-oss takes the level, other models just turn thinking on, and a model without thinking is retried without it). Inline `<think>` blocks are hidden.
+
+Settings → Models lists the server's models (`/api/tags`) with their capabilities. Star a model to save it, and saved models come first in every picker; you can also save a model name that isn't listed. Pick a default model, then optionally a model and thinking level per task. Decks have their own Ollama overrides (stored as `ollama:<task>` in the deck's model overrides), and Claude settings are kept separately, so switching back loses nothing. A custom action whose model is a Claude name uses the task's Ollama model.
+
 ### On Windows
 
 GUI apps get the full user PATH, so Studywise just looks there and in `%APPDATA%\npm` and `~\.local\bin`. npm installs `claude` as a `claude.cmd` shim, which can't be started without a shell, so Studywise runs the package's `cli.js` with `node.exe` directly. The native installer's `claude.exe` runs as is. The window uses Windows' own caption buttons, shortcuts show as Ctrl/Alt/Shift, and closing the window quits the app once no job is running. Data lives in `%APPDATA%\Studywise`.
@@ -73,6 +81,7 @@ Flashcard mode uses Again / Hard / Good / Easy, Learn results feed the same sche
 - **StudySmarter Excel**: Question, Answer A–F each followed by its "answer is correct" flag (TRUE/FALSE, `=TRUE()`, true/false or 1/0), then Tags, Hints and Explanation. A normal card exports as Answer A marked TRUE.
 - Deck JSON and CSV.
 - Notes from Markdown files or a Notion export zip, keeping Module, Type and Week. Notes export as Markdown.
+- **Anki** `.apkg` and `.colpkg`, both the old format (`collection.anki2`/`.anki21`, note types as JSON) and the current one (`collection.anki21b`, zstd-compressed, note types and media list in protobuf). Every Anki card becomes a card here: the card template is rendered (fields, `{{#…}}` sections, `text:`/`type:`/`hint:` filters, `{{FrontSide}}`), the answer side is cut at `<hr id=answer>`, and the HTML becomes Markdown, including bold, lists, sub/superscript, MathJax `\(…\)` and `[$]…[/$]` as KaTeX, and images copied into attachments. Sounds are dropped. Cloze notes become fill-in-the-blank cards, one per cloze number, with hints kept and "Back Extra" as the explanation. Image occlusion cards are skipped. Import as new decks makes one deck per Anki deck (subdecks as "Parent › Child", in a folder named after the file when there are several), and importing into a deck puts everything there. Review progress comes too (interval, ease, reps, lapses, due date, last review, and FSRS difficulty when there is one) unless you turn it off in Settings → General. Drop an `.apkg` on the window or open it with Studywise to import it straight away.
 
 PDF, Word and PowerPoint files can be dropped on the window or the Dock icon, or opened with **Open With → Studywise**.
 
@@ -100,6 +109,7 @@ Everything is in `~/Library/Application Support/Studywise/` (on Windows, `%APPDA
 | | |
 |---|---|
 | `AI_MOCK=1` | canned output for every AI task (used by tests) |
+| `OLLAMA_API_KEY` | Ollama API key, if none is saved in Settings |
 | `STUDYWISE_DATA_DIR` | use a different data folder |
 | `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | signing and notarization at build time |
 

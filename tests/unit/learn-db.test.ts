@@ -112,7 +112,7 @@ describe('IPC channel list', () => {
     const body = src.slice(src.indexOf('export const handlers = {'), src.indexOf('} as const'))
     const found: string[] = []
     let dom = ''
-    for (const line of body.split('\n')) {
+    for (const line of body.split(/\r?\n/)) {
       const d = line.match(/^ {2}(\w+): \{$/)
       if (d) dom = d[1]
       const m = line.match(/^ {4}(\w+): h\(/)

@@ -42,8 +42,37 @@ export const Card = CardInput.extend({
 })
 export type Card = z.infer<typeof Card>
 
-export const ModelChoice = z.object({ model: z.string(), effort: z.string().nullable().default(null) })
+export const AiProvider = z.enum(['claude', 'ollama'])
+export type AiProvider = z.infer<typeof AiProvider>
+
+/** provider is only set on one-off choices (e.g. a Test run); stored tables are per provider. */
+export const ModelChoice = z.object({ model: z.string(), effort: z.string().nullable().default(null), provider: AiProvider.optional() })
 export type ModelChoice = z.infer<typeof ModelChoice>
+
+export interface OllamaModel {
+  name: string
+  capabilities: string[]
+  size: number
+  modified_at: string | null
+}
+
+export interface OllamaStatus {
+  baseUrl: string
+  /** Talking to ollama.com directly (needs an API key). */
+  cloud: boolean
+  hasKey: boolean
+  /** The key came from the OLLAMA_API_KEY environment variable. */
+  keyFromEnv: boolean
+  ready: boolean
+  defaultModel: string
+  /** Models the user starred, shown first in every model picker. */
+  saved: string[]
+}
+
+export interface AiStatus {
+  provider: AiProvider
+  ollama: OllamaStatus
+}
 
 export const QUESTION_TYPES = [
   'read_understand',
