@@ -1,5 +1,6 @@
 import { useEffect, useState, lazy, Suspense } from 'react'
-import { AlertTriangle, X, FileUp, NotebookPen, Layers, Terminal, GraduationCap } from 'lucide-react'
+import { AlertTriangle, X, FileUp, NotebookPen, Layers, Terminal, GraduationCap, Download } from 'lucide-react'
+import type { UpdateStatus } from '@shared/update'
 import { useStore, toast, type Route } from './lib/store'
 import { api, onEvent, errorText } from './lib/api'
 import { startCommandDispatch, useCommands, runCommand } from './lib/commands'
@@ -324,6 +325,7 @@ export function App() {
       {!focus && <GooNav />}
       {focus && <div className="drag h-9 shrink-0" />}
       <SetupBanner />
+      <UpdateBanner />
       <main className="relative min-h-0 flex-1">
         <div key={pageKey} className="page-in absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
           {!ready ? (
@@ -424,6 +426,63 @@ function OllamaBanner({ problem, onHide }: { problem: string; onHide: () => void
       <button onClick={onHide} className="text-muted hover:text-ink" aria-label="Dismiss">
         <X className="size-4" />
       </button>
+    </div>
+  )
+}
+
+/**
+ * "Update available" when GitHub has new commits for this checkout. Update
+ * pulls them, installs packages if needed and restarts the app.
+ */
+function UpdateBanner() {
+  const [status, setStatus] = useState<UpdateStatus | null>(null)
+  // "Later" hides the banner until more changes arrive.
+  const [dismissedAt, setDismissedAt] = useState(0)
+  useEffect(() => {
+    void api.updates.status().then(setStatus)
+    return onEvent((ev) => ev.type === 'update' && setStatus(ev.status))
+  }, [])
+  if (!status?.supported) return null
+  const busy = status.state === 'updating' || status.state === 'restarting'
+  if (!busy && ((status.behind === 0 && status.state !== 'error') || (dismissedAt > 0 && status.behind <= dismissedAt))) return null
+  const n = status.behind
+  const blocked = status.ahead > 0
+  const update = async () => {
+    try {
+      await api.updates.apply()
+    } catch (e) {
+      toast(errorText(e), 'bad')
+    }
+  }
+  return (
+    <div className="pop-in mx-3 mt-2.5 flex flex-wrap items-center gap-3 rounded-xl border border-accent/30 bg-accent-soft px-4 py-3 sm:mx-4">
+      {busy ? <Spinner className="size-5 shrink-0 text-accent" /> : status.state === 'error' ? <AlertTriangle className="size-5 shrink-0 text-warn" /> : <Download className="size-5 shrink-0 text-accent" />}
+      <div className="min-w-0 flex-1 text-[0.92rem]">
+        <div className="font-semibold">
+          {busy ? status.stage ?? 'Updating…' : status.state === 'error' ? 'The update didn’t finish' : `Update available: ${n} new change${n === 1 ? '' : 's'}`}
+        </div>
+        <div className="truncate text-muted">
+          {busy
+            ? status.state === 'restarting'
+              ? 'The app will close and open again in a few seconds.'
+              : 'Keep the app open.'
+            : status.state === 'error'
+              ? status.error
+              : blocked
+                ? `This copy has ${status.ahead} commit${status.ahead === 1 ? '' : 's'} of its own, so it can’t update automatically. Run git pull in the project folder.`
+                : status.changes.join(' · ')}
+        </div>
+      </div>
+      {!busy && !blocked && (
+        <Button size="sm" variant="ink" onClick={update}>
+          {status.state === 'error' ? 'Try again' : 'Update & restart'}
+        </Button>
+      )}
+      {!busy && (
+        <Button size="sm" variant="ghost" onClick={() => setDismissedAt(Math.max(status.behind, 0) || 1)} aria-label="Hide until there are more changes">
+          Later
+        </Button>
+      )}
     </div>
   )
 }

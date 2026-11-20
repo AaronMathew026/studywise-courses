@@ -13,6 +13,7 @@ import * as anki from './anki'
 import { startJob, cancelJob, listJobs, clearFinishedJobs, getJob } from './jobs'
 import * as gen from './services/generate'
 import * as learn from './services/learn'
+import * as updates from './updater'
 import * as explain from './services/explain'
 import * as course from './services/course'
 import { CourseQuestion } from '@shared/course'
@@ -171,6 +172,11 @@ async function importCardsFromFile(file: string, deckId: string): Promise<number
 // ---------------------------------------------------------------------------
 
 export const handlers = {
+  updates: {
+    status: h(none, () => updates.updateStatus()),
+    check: h(none, () => updates.checkForUpdate()),
+    apply: h(none, () => updates.applyUpdate())
+  },
   app: {
     info: h(none, () => ({
       version: app.getVersion(),
