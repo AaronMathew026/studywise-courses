@@ -23,6 +23,7 @@ import {
   Cpu,
   Settings as Gear,
   Activity,
+  ListChecks,
   Wand2,
   Info,
   Archive
@@ -31,6 +32,7 @@ import type { Preset, PresetVersion, CustomAction, ModelChoice, AiCall, Threshol
 import { ACTION_PLACEMENTS, DEFAULT_THRESHOLDS } from '@shared/types'
 import { TASK_INFO, TASKS, MODEL_ALIASES, EFFORT_LEVELS, type TaskId } from '@shared/tasks'
 import { useStore, toast } from '../lib/store'
+import { Jobs } from './Jobs'
 import { api, streamCall, errorText } from '../lib/api'
 import { useCommands } from '../lib/commands'
 import { confirmDialog, askText } from '../lib/dialogs'
@@ -45,12 +47,14 @@ const TABS = [
   { id: 'models', label: 'Models', icon: Cpu },
   { id: 'prompts', label: 'Prompts', icon: Sparkles },
   { id: 'actions', label: 'Custom actions', icon: Wand2 },
-  { id: 'usage', label: 'AI usage', icon: Activity }
+  { id: 'usage', label: 'AI usage', icon: Activity },
+  { id: 'jobs', label: 'Jobs', icon: ListChecks }
 ] as const
 
 export function Settings({ tab = 'general' }: { tab?: string }) {
   const go = useStore((s) => s.go)
   const cur = TABS.find((t) => t.id === tab) ? tab : 'general'
+  const running = useStore((s) => s.jobs.filter((j) => j.status === 'running').length)
   useCommands({
     'go.nextDeck': () => {
       const i = TABS.findIndex((t) => t.id === cur)
@@ -63,7 +67,7 @@ export function Settings({ tab = 'general' }: { tab?: string }) {
   }, [cur])
   return (
     <Shell wide>
-      <PageTitle eyebrow="Studywise" title="Settings" />
+      <PageTitle eyebrow="Studywise Courses" title="Settings" />
       <div className="mb-6 flex flex-wrap gap-1.5">
         {TABS.map((t) => (
           <button
@@ -75,6 +79,7 @@ export function Settings({ tab = 'general' }: { tab?: string }) {
             )}
           >
             <t.icon className="size-4" /> {t.label}
+            {t.id === 'jobs' && running > 0 && <span className="tabular inline-grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.68rem] leading-4 text-accent-ink">{running}</span>}
           </button>
         ))}
       </div>
@@ -85,6 +90,7 @@ export function Settings({ tab = 'general' }: { tab?: string }) {
         {cur === 'prompts' && <PromptsTab />}
         {cur === 'actions' && <ActionsTab />}
         {cur === 'usage' && <UsageTab />}
+        {cur === 'jobs' && <Jobs embedded />}
       </div>
     </Shell>
   )

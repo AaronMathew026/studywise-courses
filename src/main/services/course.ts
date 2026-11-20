@@ -9,6 +9,7 @@ import { paths } from '../paths'
 import { extractText, pdfPageCount } from '../files'
 import type { JobContext } from '../jobs'
 import { thresholdsFor } from './learn'
+import { planTracker, topicTracker } from './liveProgress'
 import { verdictFor } from '@shared/marking'
 import { isDue } from '@shared/sm2'
 import type { Mark } from '@shared/questions'
@@ -48,9 +49,9 @@ const WHOLE_PDF_PAGES = 40
 // ---------------------------------------------------------------------------
 // Rows
 
-type CourseRow = Course
+type CourseRow = Course & { note_folder_id?: string | null }
 type WeekRow = Week & { outline: string | null }
-type TopicRow = { id: string; course_id: string; week_id: string; key: string; position: number; plan: string; status: string; error: string | null; content: string | null; progress: string; updated_at: string }
+type TopicRow = { id: string; course_id: string; week_id: string; key: string; position: number; plan: string; status: string; error: string | null; content: string | null; progress: string; updated_at: string; note_id: string | null }
 
 function cardCounts(deckId: string | null): Map<string, number> {
   const m = new Map<string, number>()
@@ -74,6 +75,7 @@ const toTopic = (r: TopicRow, counts: Map<string, number>): Topic => ({
   content: json<TopicContent | null>(r.content, null),
   progress: { ...emptyProgress(), ...json<Partial<TopicProgress>>(r.progress, {}) },
   card_count: counts.get(r.id) ?? 0,
+  note_id: r.note_id ?? null,
   updated_at: r.updated_at
 })
 
@@ -92,7 +94,7 @@ function weekRow(id: string): WeekRow {
 }
 
 export function getCourse(id: string): CourseFull {
-  const c = courseRow(id)
+  const { note_folder_id: _f, ...c } = courseRow(id)
   const files = listFiles(id)
   const topics = listTopics(id)
   const weeks = (getDb().prepare('SELECT * FROM weeks WHERE course_id = ? ORDER BY position').all(id) as WeekRow[]).map(
@@ -114,8 +116,9 @@ export function listCourses(): CourseSummary[] {
         due = 0
       }
     }
+    const { note_folder_id: _f, ...course } = r
     return {
-      ...r,
+      ...course,
       week_count: weeks.length,
       planning: weeks.some((w) => w.status === 'planning'),
       topic_count: topics.length,
@@ -266,6 +269,8 @@ export function deleteCourse(id: string, keepDeck: boolean): void {
 
 export function renameCourse(id: string, name: string): void {
   getDb().prepare('UPDATE courses SET name = ?, module = ?, updated_at = ? WHERE id = ?').run(name, name, now(), id)
+  const f = courseRow(id).note_folder_id
+  if (f) repo.renameFolder(f, name)
 }
 
 // ---------------------------------------------------------------------------
@@ -308,8 +313,10 @@ export async function planWeek(weekId: string, ctx: JobContext, instructions = '
   const files = listFiles(course.id).filter((f) => f.week_id === weekId)
   if (!files.length) throw new Error(`Add files to ${week.label} first.`)
   setWeek(weekId, { status: 'planning', error: null })
+  const live = ctx.live ?? (() => {})
   try {
     ctx.progress('Reading the files…')
+    live({ stage: 'Reading the files…', percent: 0.02 })
     const texts: { file: CourseFile; text: string | null }[] = []
     for (const f of files) texts.push({ file: f, text: await fileText(f).catch(() => null) })
     const describe = (list: typeof texts) => list.map(({ file }) => `${file.name}${file.pages ? ` (${file.pages} pages)` : ''}`).join(', ')
@@ -325,7 +332,8 @@ export async function planWeek(weekId: string, ctx: JobContext, instructions = '
       ? `This is ${week.label} of the course. Earlier weeks already have these topics:\n${earlier.map((t) => `- ${t.key}: ${t.content?.title ?? t.plan.title}`).join('\n')}\nDon't plan topics for what they already cover, unless this week takes it further. When a topic builds on one of them, put its id (like ${earlier[0].key}) in "needs". Number this week's own topics t1, t2, …`
       : ''
 
-    const callFor = async (list: typeof texts, partInfo: string): Promise<CourseOutline> => {
+    live({ stage: 'Sending them to Claude…', percent: 0.08, log: files.map((f) => `Read ${f.name}`) })
+    const callFor = async (list: typeof texts, partInfo: string, from = 0.1, to = 0.95): Promise<CourseOutline> => {
       // PDFs without a text layer go in as files so Claude can look at the slides.
       const attach = list.filter((t) => t.text === null && t.file.name.toLowerCase().endsWith('.pdf')).map((t) => t.file.path)
       const source = list.filter((t) => t.text !== null).map((t) => fileBlock(t.file.name, t.text!.slice(0, ONE_CALL_CHARS))).join('\n\n')
@@ -358,7 +366,7 @@ export async function planWeek(weekId: string, ctx: JobContext, instructions = '
         ]
           .filter(Boolean)
           .join('\n')
-        parts.push(await callFor([t], note))
+        parts.push(await callFor([t], note, 0.1 + (0.85 * i) / texts.length, 0.1 + (0.85 * (i + 1)) / texts.length))
       }
       outline = mergeOutlines(parts, known)
     }
@@ -487,11 +495,14 @@ export async function writeTopic(topicId: string, ctx: JobContext, instructions 
   ctx.meta({ topicId, courseId: course.id })
   setTopic(topicId, { status: 'writing', error: null })
   const work = mkdtempSync(join(tmpdir(), 'studywise-topic-'))
+  const live = ctx.live ?? (() => {})
   try {
     ctx.progress('Gathering this topic’s sources…')
+    live({ stage: 'Picking out this topic’s pages…', percent: 0.02 })
     const weekFiles = listFiles(course.id).filter((f) => f.week_id === topic.week_id)
     const src = await topicSources(weekFiles, topic.plan, work)
     ctx.progress(`Writing ${topic.plan.title}…`)
+    live({ stage: 'Sending them to Claude…', percent: 0.06, log: src.notes.length ? src.notes : ['Sending the week’s files'] })
     const r = await runAI<AiTopic>({
       task: 'course_topic',
       vars: {
@@ -506,9 +517,11 @@ export async function writeTopic(topicId: string, ctx: JobContext, instructions 
       },
       files: src.attach.length ? src.attach : undefined,
       deckId: course.deck_id,
+      onEvent: topicTracker(live, topic.plan.sections.length, 0.08, 0.9),
       signal: ctx.signal
     })
     const ai = r.data
+    live({ stage: 'Saving…', percent: 0.9, preview: null })
     const content: TopicContent = {
       title: ai.title || topic.plan.title,
       goal: ai.goal || topic.plan.goal,
@@ -534,8 +547,12 @@ export async function writeTopic(topicId: string, ctx: JobContext, instructions 
     const figs = content.sections.map((s) => s.figure).filter((f): f is Figure => !!f)
     if (figs.length) {
       ctx.progress('Rendering figures…')
+      live({ stage: 'Rendering figures…', percent: 0.93 })
       for (const f of figs) await figureUrl(f.fileId, f.page).catch(() => null)
     }
+    live({ stage: 'Saving the notes…', percent: 0.97 })
+    const noteId = await syncTopicNote(topicId).catch(() => null)
+    ctx.meta({ noteId })
     return { topicId, sections: content.sections.length, cards: cards.length }
   } catch (e) {
     setTopic(topicId, { status: 'error', error: ctx.signal.aborted ? 'Cancelled' : (e as Error).message })
@@ -624,14 +641,52 @@ export function recallReview(cardId: string, knew: boolean): void {
   repo.applyReview(cardId, knew ? 3 : 1, 'learn')
 }
 
-/** The topic's notes as one page, saved as a note. */
-export function topicAsNote(topicId: string): string {
+function noteFolder(courseId: string): string {
+  const c = courseRow(courseId)
+  if (c.note_folder_id && repo.listFolders('note').some((f) => f.id === c.note_folder_id)) return c.note_folder_id
+  const f = repo.createFolder(c.name, 'note')
+  getDb().prepare('UPDATE courses SET note_folder_id = ? WHERE id = ?').run(f.id, courseId)
+  return f.id
+}
+
+/**
+ * The topic's notes as one note, in the course's notes folder, with its figures.
+ * Made when the topic is written and updated when it's written again.
+ */
+export async function syncTopicNote(topicId: string): Promise<string> {
   const t = getTopic(topicId)
   if (!t.content) throw new Error('Write the topic first')
   const course = courseRow(t.course_id)
   const week = weekRow(t.week_id)
-  const body = t.content.sections.map((s) => `## ${s.heading}\n\n${s.notes}`).join('\n\n')
-  const note = repo.createNote({ title: t.content.title, module: course.module || course.name, type: 'Lecture', week: week.label, content: `${body}\n` })
-  if (course.deck_id) repo.linkNoteDeck(note.id, course.deck_id, true)
-  return note.id
+  const parts: string[] = []
+  if (t.content.goal) parts.push(`_${t.content.goal}_`)
+  for (const s of t.content.sections) {
+    parts.push(`## ${s.heading}\n\n${s.notes}`)
+    if (s.figure) {
+      const url = await figureUrl(s.figure.fileId, s.figure.page).catch(() => null)
+      if (url) parts.push(`![${s.figure.caption.replace(/[[\]]/g, '')}](${url})${s.figure.caption ? `\n_${s.figure.caption}_` : ''}`)
+    }
+  }
+  // The notes list shows "Week <week>", so "Week 3" is stored as "3".
+  const fields = { title: t.content.title, module: course.module || course.name, type: 'Lecture', week: week.label.replace(/^week\s+/i, ''), content: `${parts.join('\n\n')}\n` }
+  let noteId = t.note_id
+  if (noteId) {
+    try {
+      repo.updateNote(noteId, fields)
+    } catch {
+      noteId = null // deleted: make a new one
+    }
+  }
+  if (!noteId) {
+    noteId = repo.createNote({ ...fields, folder_id: noteFolder(course.id) }).id
+    getDb().prepare('UPDATE topics SET note_id = ? WHERE id = ?').run(noteId, topicId)
+  }
+  if (course.deck_id) repo.linkNoteDeck(noteId, course.deck_id, true)
+  return noteId
+}
+
+/** Topics written before notes were automatic get theirs now. */
+export async function backfillNotes(): Promise<void> {
+  const ids = (getDb().prepare("SELECT id FROM topics WHERE status = 'ready' AND (note_id IS NULL OR note_id NOT IN (SELECT id FROM notes))").all() as { id: string }[]).map((r) => r.id)
+  for (const id of ids) await syncTopicNote(id).catch(() => null)
 }

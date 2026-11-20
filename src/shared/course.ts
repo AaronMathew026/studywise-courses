@@ -125,6 +125,8 @@ export interface Topic {
   content: TopicContent | null
   progress: TopicProgress
   card_count: number
+  /** The topic's notes, saved as a note when it's written. */
+  note_id: string | null
   updated_at: string
 }
 

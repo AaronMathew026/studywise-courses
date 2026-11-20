@@ -14,7 +14,6 @@ const LINKS: { label: string; route: Route; match: Route['name'][]; key: string 
   { label: 'Courses', route: { name: 'courses' }, match: ['courses', 'course', 'topic'], key: 'g c' },
   { label: 'Decks', route: { name: 'decks' }, match: ['decks', 'deck', 'flashcards', 'learn'], key: '⌘2' },
   { label: 'Notes', route: { name: 'notes' }, match: ['notes'], key: '⌘3' },
-  { label: 'Jobs', route: { name: 'jobs' }, match: ['jobs'], key: '⌘4' },
   { label: 'Settings', route: { name: 'settings' }, match: ['settings'], key: '⌘,' }
 ]
 
@@ -101,7 +100,7 @@ export function GooNav() {
                 aria-current={l.match.includes(route.name) ? 'page' : undefined}
               >
                 {l.label}
-                {l.label === 'Jobs' && running > 0 && <span className="tabular ml-1.5 inline-grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.68rem] leading-4 text-accent-ink">{running}</span>}
+                {l.label === 'Settings' && running > 0 && <span className="tabular ml-1.5 inline-grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.68rem] leading-4 text-accent-ink">{running}</span>}
               </button>
             ))}
           </div>

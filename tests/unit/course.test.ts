@@ -106,6 +106,8 @@ afterAll(() => {
 })
 
 const ctx = () => ({ signal: new AbortController().signal, progress: () => {}, delta: () => {}, meta: () => {} })
+type LivePatch = { stage?: string; percent?: number | null }
+const recording = (seen: LivePatch[]) => ({ ...ctx(), live: (p: LivePatch) => void seen.push(p) })
 
 describe('course service (mock AI)', () => {
   it('plans, writes a topic, renders its figure and serves recall cards', async () => {
@@ -144,7 +146,15 @@ describe('course service (mock AI)', () => {
     ])
 
     // Topic 2 uses pages 5–8, so page 2 of the excerpt is page 6 of the PDF.
-    const r = await svc.writeTopic(topics[1].id, ctx())
+    const seen: LivePatch[] = []
+    const r = await svc.writeTopic(topics[1].id, recording(seen))
+    const stages = seen.map((p) => p.stage).filter(Boolean)
+    expect(stages.some((x) => /^Reading /.test(x!))).toBe(true)
+    expect(stages.some((x) => /^Writing section 3 of 3/.test(x!))).toBe(true)
+    expect(stages.some((x) => /topic check/.test(x!))).toBe(true)
+    expect(stages.some((x) => /recall cards/.test(x!))).toBe(true)
+    const pcts = seen.map((p) => p.percent).filter((x): x is number => typeof x === 'number')
+    expect(Math.max(...pcts)).toBeGreaterThan(0.9)
     expect(r.cards).toBe(4)
     const t2 = svc.getTopic(topics[1].id)
     expect(t2.status).toBe('ready')
@@ -178,8 +188,17 @@ describe('course service (mock AI)', () => {
     const empty = await svc.markExplain(course.id, explainQ, '  ')
     expect(empty.mark.score).toBe(0)
 
-    const noteId = svc.topicAsNote(topics[1].id)
+    // Writing a topic makes its note (in the course's folder, with the figure); rewriting updates the same one.
+    const noteId = svc.getTopic(topics[1].id).note_id!
     expect(noteId).toBeTruthy()
+    const repoMod = await import('../../src/main/db/repo')
+    const note = repoMod.getNote(noteId)
+    expect(note.title).toBe(t2.content!.title)
+    expect(note.week).toBe('1')
+    expect(note.content).toContain('## Key terms:')
+    expect(note.content).toMatch(/!\[.*\]\(studywise-file:\/\/courses\/.+\.png\)/)
+    expect(repoMod.listFolders('note').find((f) => f.id === note.folder_id)?.name).toBe('Quantum 101')
+    expect(await svc.syncTopicNote(topics[1].id)).toBe(noteId)
 
     // Recall reaches back into earlier weeks.
     const w2t1 = all[3]
@@ -199,4 +218,13 @@ describe('course service (mock AI)', () => {
     svc.deleteCourse(course.id, false)
     expect(svc.listCourses()).toHaveLength(0)
   }, 60_000)
+})
+
+describe('live progress parsing', () => {
+  it('reads finished and half-written strings out of partial JSON', async () => {
+    const { stringValues } = await import('../../src/main/services/liveProgress')
+    const json = '{"sections":[{"heading":"What is IFT?","notes":"This is \\"the\\" idea.\\nMore"},{"heading":"Rename vs Mo'
+    expect(stringValues(json, 'heading')).toEqual({ done: ['What is IFT?'], open: 'Rename vs Mo' })
+    expect(stringValues(json, 'notes').done).toEqual(['This is "the" idea.\nMore'])
+  })
 })

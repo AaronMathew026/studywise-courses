@@ -277,6 +277,29 @@ export function mockResponse(task: TaskId, mode: string, vars: Record<string, un
   }
 }
 
+/** Fake live events: reads, a bit of thinking, then the output in chunks. */
+export async function mockLive(text: string, files: string[], onEvent: (e: import('./cli').AiLiveEvent) => void, signal?: AbortSignal): Promise<void> {
+  // AI_MOCK_SLOW=20 stretches this out, for screenshots of the progress panel.
+  const slow = Number(process.env.AI_MOCK_SLOW) || 1
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms * slow))
+  for (const f of files) {
+    onEvent({ kind: 'tool', name: 'Read' })
+    onEvent({ kind: 'read', file: f.split(/[\\/]/).pop() ?? f })
+    await wait(120)
+  }
+  onEvent({ kind: 'thinking' })
+  for (let t = 1; t <= 5; t++) {
+    onEvent({ kind: 'thinking', tokens: t * 420 })
+    await wait(90)
+  }
+  onEvent({ kind: 'tool', name: 'StructuredOutput' })
+  for (const c of text.match(/[\s\S]{1,160}/g) ?? []) {
+    if (signal?.aborted) throw Object.assign(new Error('Cancelled'), { kind: 'cancelled' })
+    onEvent({ kind: 'output', text: c })
+    await wait(25)
+  }
+}
+
 export async function mockStream(text: string, onDelta?: (t: string) => void, signal?: AbortSignal): Promise<void> {
   if (!onDelta) return
   const chunks = text.match(/[\s\S]{1,24}/g) ?? []

@@ -19,6 +19,7 @@ import { Flashcards } from './pages/Flashcards'
 import { Notes } from './pages/Notes'
 import { Jobs } from './pages/Jobs'
 import { Courses, NewCourseModal } from './pages/Courses'
+import { JobDock } from './components/JobLive'
 import { CoursePage } from './pages/Course'
 
 const Learn = lazy(() => import('./pages/Learn').then((m) => ({ default: m.Learn })))
@@ -323,6 +324,7 @@ export function App() {
       <GenerateCardsModal />
       <GenerateNotesModal />
       <NewCourseModal />
+      <JobDock />
       <CardPreviewModal />
       <CommandPalette />
       <ShortcutSheet />

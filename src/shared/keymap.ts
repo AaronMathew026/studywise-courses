@@ -65,7 +65,7 @@ export const COMMANDS: Command[] = [
   { id: 'go.courses', label: 'Courses', keys: ['g c'], menu: 'Go', group: 'Go to' },
   { id: 'go.decks', label: 'Decks', accelerator: 'CmdOrCtrl+2', keys: ['g d'], menu: 'Go', group: 'Go to' },
   { id: 'go.notes', label: 'Notes', accelerator: 'CmdOrCtrl+3', keys: ['g n'], menu: 'Go', group: 'Go to' },
-  { id: 'go.jobs', label: 'Jobs', accelerator: 'CmdOrCtrl+4', keys: ['g j'], menu: 'Go', group: 'Go to' },
+  { id: 'go.jobs', label: 'Settings › Jobs', accelerator: 'CmdOrCtrl+4', keys: ['g j'], menu: 'Go', group: 'Go to' },
   { id: 'go.settings', label: 'Settings', accelerator: 'CmdOrCtrl+,', keys: ['g s'], menu: 'Go', group: 'Go to' },
   { id: 'go.back', label: 'Back', accelerator: 'CmdOrCtrl+[', menu: 'Go', group: 'Go to', separatorBefore: true },
   { id: 'go.forward', label: 'Forward', accelerator: 'CmdOrCtrl+]', menu: 'Go', group: 'Go to' },

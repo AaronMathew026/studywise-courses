@@ -8,6 +8,7 @@ import { askText, confirmDialog } from '../lib/dialogs'
 import { Shell, PageTitle } from '../components/Shell'
 import { Button, Dots, Field, Input, Menu, MenuItem, Modal, Pill, ProgressBar, Textarea, cx } from '../components/ui'
 import { FileDrop } from './Courses'
+import { JobLive } from '../components/JobLive'
 import { DeckSettings } from './Deck'
 import type { Deck } from '@shared/types'
 
@@ -193,9 +194,9 @@ function WeekSection({ week: w, reload, write }: { week: WeekFull; reload: () =>
     useStore.getState().bump()
   }
   const saveNote = async (t: Topic) => {
+    // Notes are made when the topic is written; this also makes them if they were deleted.
     const noteId = await api.courses.saveNote({ topicId: t.id })
-    useStore.getState().bump()
-    toast('Saved as a note', 'good', { label: 'Open', run: () => go({ name: 'notes', id: noteId }) })
+    go({ name: 'notes', id: noteId })
   }
 
   return (
@@ -284,11 +285,17 @@ function WeekSection({ week: w, reload, write }: { week: WeekFull; reload: () =>
           <div className="flex items-center gap-2 font-semibold">
             <Sparkles className="size-4 text-accent" /> Planning {w.label} <Dots />
           </div>
-          <p className="mt-1 text-[0.9rem] text-muted">{planJob?.progress ?? 'Reading the files…'} This takes a minute or two. You can leave this page.</p>
-          <div className="mt-4 flex flex-col gap-2">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="skeleton h-14" />
-            ))}
+          <p className="mt-1 text-[0.9rem] text-muted">This takes a minute or two. You can leave this page; it keeps going.</p>
+          <div className="mt-4">
+            {planJob ? (
+              <JobLive job={planJob} />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="skeleton h-14" />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -334,9 +341,9 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
       <div className="min-w-0 flex-1">
         <div className="font-semibold">{t.content?.title ?? t.plan.title}</div>
         <div className="truncate text-[0.88rem] text-muted">{t.content?.goal ?? t.plan.goal}</div>
-        {writing && (
+        {writing && !job && (
           <div className="mt-1 flex items-center gap-1.5 text-[0.85rem] text-accent">
-            <Sparkles className="size-3.5" /> {job?.progress ?? 'Writing…'}
+            <Sparkles className="size-3.5" /> Writing…
           </div>
         )}
         {t.status === 'error' && !writing && <div className="mt-1 text-[0.85rem] text-bad">{t.error}</div>}
@@ -368,7 +375,7 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
               {(close) => (
                 <>
                   <MenuItem icon={<NotebookPen className="size-4" />} onClick={() => (close(), void saveNote(t))}>
-                    Save notes as a note
+                    Open notes
                   </MenuItem>
                   <MenuItem icon={<RotateCcw className="size-4" />} onClick={() => (close(), void api.courses.resetProgress({ topicId: t.id }).then(reload))}>
                     Reset progress
@@ -393,7 +400,17 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
             </Button>
           )
         )}
+        {job && (
+          <Button size="sm" variant="ghost" onClick={() => api.jobs.cancel({ id: job.id })}>
+            Cancel
+          </Button>
+        )}
       </div>
+      {job && (
+        <div className="basis-full pl-13" onClick={(e) => e.stopPropagation()}>
+          <JobLive job={job} />
+        </div>
+      )}
     </li>
   )
 }

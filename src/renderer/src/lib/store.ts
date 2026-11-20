@@ -86,6 +86,8 @@ export const useStore = create<State>((set, get) => ({
   back: [],
   forward: [],
   go: (r) => {
+    // Jobs lives in Settings now.
+    if (r.name === 'jobs') r = { name: 'settings', tab: 'jobs' }
     const cur = get().route
     if (JSON.stringify(cur) === JSON.stringify(r)) return
     set({ route: r, back: [...get().back.slice(-50), cur], forward: [] })

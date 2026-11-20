@@ -203,6 +203,21 @@ export interface JobInfo {
   error: string | null
   result: unknown
   meta: Record<string, unknown>
+  /** 0–1 while running, when the job can tell; null otherwise. */
+  percent: number | null
+  live: JobLive | null
+}
+
+/** What Claude is doing right now, for the progress panel. */
+export interface JobLive {
+  stage: string
+  /** Recent steps, oldest first. */
+  log: string[]
+  /** Claude Code's running estimate; the thinking text itself isn't available. */
+  thinkingTokens: number
+  thinking: boolean
+  /** The part being written right now. */
+  preview: { heading: string; text: string } | null
 }
 
 export interface ClaudeStatus {

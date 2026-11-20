@@ -582,3 +582,13 @@ h1, h2, h3 {
   padding-left: 16px;
   padding-right: 150px;
 }
+
+/* Progress bar with no known percent: a slow sweep. */
+@keyframes job-sweep {
+  from { left: -35%; }
+  to { left: 100%; }
+}
+.job-sweep { animation: job-sweep 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .job-sweep { animation: none; left: 0; width: 100%; opacity: 0.4; }
+}

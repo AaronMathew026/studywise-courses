@@ -328,8 +328,7 @@ export function TopicPage({ id }: { id: string }) {
             nextTitle={nextTopic?.content?.title ?? nextTopic?.plan.title}
             onSaveNote={async () => {
               const noteId = await api.courses.saveNote({ topicId: topic.id })
-              useStore.getState().bump()
-              toast('Saved as a note', 'good', { label: 'Open', run: () => go({ name: 'notes', id: noteId }) })
+              go({ name: 'notes', id: noteId })
             }}
           />
         )}
@@ -532,7 +531,7 @@ function Summary({
           Back to course
         </Button>
         <Button variant="ghost" onClick={onSaveNote}>
-          <NotebookPen className="size-4" /> Save notes as a note
+          <NotebookPen className="size-4" /> Open the notes
         </Button>
       </div>
     </div>

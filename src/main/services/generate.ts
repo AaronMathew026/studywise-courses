@@ -6,6 +6,7 @@ import { runAI } from '../ai'
 import { defaultPreset, getPreset, getPresetByKey } from '../ai/presets'
 import { prepareSources, pdfPageCount, extractText, type SourceChunk } from '../files'
 import type { JobContext } from '../jobs'
+import { simpleTracker } from './liveProgress'
 import * as repo from '../db/repo'
 import { parseStudySmarterText, validateCards, dedupeCards, normalizeQuestion, type CardWarning } from '@shared/ssText'
 import type { GeneratedCard } from '@shared/questions'
@@ -135,7 +136,7 @@ export async function generateNotes(input: GenerateNotesInput, ctx: JobContext):
       for (const id of s.noteIds) texts.push(noteText(id, `T${i++}`))
       if (s.text) texts.push(`# T${i++}: pasted text\n\n${s.text}`)
       ctx.progress(`Linking ${i - 1} texts…`)
-      const r = await runAI<string>({ task: 'generate_notes', presetId: preset.id, vars: { ...baseVars, source_text: texts.join('\n\n---\n\n') }, files, deckId: input.deckId, signal: ctx.signal, onDelta: push })
+      const r = await runAI<string>({ task: 'generate_notes', presetId: preset.id, vars: { ...baseVars, source_text: texts.join('\n\n---\n\n') }, files, deckId: input.deckId, signal: ctx.signal, onDelta: push, onEvent: ctx.live ? simpleTracker(ctx.live, 0.05, 0.98, `Linking ${i - 1} texts…`) : undefined })
       if (!content) push(r.text)
     } else {
       let chunks: SourceChunk[] = []
@@ -144,8 +145,11 @@ export async function generateNotes(input: GenerateNotesInput, ctx: JobContext):
       if (s.text) chunks.push(...(await import('../files')).textChunks(s.text, 'pasted text'))
       if (chunks.length === 0 && s.topic) chunks.push({ text: `Topic: ${s.topic}`, label: s.topic, partInfo: `There is no source document. Write the notes on the topic "${s.topic}" from your own knowledge, accurately, at the right level.` })
       if (chunks.length === 0) throw new Error('Add a file, a topic, some text or a note to generate from.')
+      const live = ctx.live ?? (() => {})
       for (const [i, c] of chunks.entries()) {
-        ctx.progress(chunks.length > 1 ? `Writing part ${i + 1} of ${chunks.length} (${c.label})…` : `Writing notes from ${c.label}…`)
+        const stage = chunks.length > 1 ? `Writing part ${i + 1} of ${chunks.length} (${c.label})…` : `Writing notes from ${c.label}…`
+        ctx.progress(stage)
+        live({ stage, percent: i / chunks.length })
         const cont =
           i > 0
             ? `\nThis continues an existing note. Don't repeat the title, the opening "What is...?" section, or sections already written. Headings so far: ${content
@@ -163,6 +167,7 @@ export async function generateNotes(input: GenerateNotesInput, ctx: JobContext):
           files: c.file ? [c.file] : undefined,
           deckId: input.deckId,
           signal: ctx.signal,
+          onEvent: simpleTracker(live, i / chunks.length, (i + 1) / chunks.length, stage),
           onDelta: (t) => {
             got += t
             push(t)
@@ -249,9 +254,12 @@ export async function generateCards(input: GenerateCardsInput, ctx: JobContext):
 
     let all: PreviewCard[] = []
     let rounds = 0
+    const live = ctx.live ?? (() => {})
     for (const [ci, chunk] of chunks.entries()) {
       const label = chunks.length > 1 ? `Part ${ci + 1}/${chunks.length}: ` : ''
       ctx.progress(`${label}reading ${chunk.label}… (${all.length} cards so far)`)
+      live({ stage: `${label}reading ${chunk.label}… (${all.length} cards so far)`, percent: ci / chunks.length })
+      const tracker = simpleTracker(live, ci / chunks.length, (ci + 1) / chunks.length, `${label}writing cards from ${chunk.label}… (${all.length} so far)`)
       const source = sourceFor(chunk)
       const noteContent = chunk.noteId ? repo.getNote(chunk.noteId).content : null
       const withSection = (c: PreviewCard): PreviewCard =>
@@ -264,7 +272,8 @@ export async function generateCards(input: GenerateCardsInput, ctx: JobContext):
           vars: { ...vars, source_text: chunk.text ?? '', part_info: chunk.partInfo ?? '' },
           files: chunk.file ? [chunk.file] : undefined,
           deckId: input.deckId,
-          signal: ctx.signal
+          signal: ctx.signal,
+          onEvent: tracker
         })
         rounds++
         all = all.concat(dedupeCards(all, r.data.cards.map((g) => withSection(fromGenerated(g, input.format, source)))))
@@ -280,6 +289,7 @@ export async function generateCards(input: GenerateCardsInput, ctx: JobContext):
         files: chunk.file ? [chunk.file] : undefined,
         deckId: input.deckId,
         signal: ctx.signal,
+        onEvent: tracker,
         persistSession: true,
         workDir: chunkDir
       })

@@ -12,6 +12,8 @@ export interface CliRequest {
   jsonSchema?: object
   stream?: boolean
   onDelta?: (text: string) => void
+  /** Live view of what Claude is doing: thinking, tool calls, and partial output (text or structured JSON). */
+  onEvent?: (e: AiLiveEvent) => void
   /** Files copied into the temp cwd; only the read-only Read tool is enabled when present. */
   files?: string[]
   resume?: string
@@ -36,6 +38,14 @@ export interface CliResult {
   workDir: string
   raw: string
 }
+
+export type AiLiveEvent =
+  /** Claude Code reports a running estimate of thinking tokens; the thinking text itself isn't shown to other programs. */
+  | { kind: 'thinking'; tokens?: number; text?: string }
+  | { kind: 'tool'; name: string }
+  | { kind: 'read'; file: string; pages?: string }
+  /** Output as it's written: reply text, or the structured-output tool's JSON. */
+  | { kind: 'output'; text: string }
 
 type RateLimitInfo = Record<string, unknown>
 const rateListeners = new Set<(info: RateLimitInfo) => void>()
@@ -109,6 +119,7 @@ export function runClaude(req: CliRequest): Promise<CliResult> {
     let lineBuf = ''
     let finalEnvelope: Record<string, unknown> | null = null
     let streamed = ''
+    let currentTool = ''
     let settled = false
 
     const finish = (fn: () => void) => {
@@ -145,11 +156,27 @@ export function runClaude(req: CliRequest): Promise<CliResult> {
         return
       }
       if (ev.type === 'stream_event') {
-        const e = ev.event as { type?: string; delta?: { type?: string; text?: string } }
-        if (ev.parent_tool_use_id == null && e?.type === 'content_block_delta' && e.delta?.type === 'text_delta' && e.delta.text) {
+        const e = ev.event as { type?: string; delta?: { type?: string; text?: string; thinking?: string; partial_json?: string }; content_block?: { type?: string; name?: string } }
+        if (ev.parent_tool_use_id != null) return
+        if (e?.type === 'content_block_delta' && e.delta?.type === 'text_delta' && e.delta.text) {
           streamed += e.delta.text
           req.onDelta?.(e.delta.text)
+          req.onEvent?.({ kind: 'output', text: e.delta.text })
+        } else if (e?.type === 'content_block_delta' && e.delta?.type === 'thinking_delta' && e.delta.thinking) {
+          req.onEvent?.({ kind: 'thinking', text: e.delta.thinking })
+        } else if (e?.type === 'content_block_start' && e.content_block?.type === 'thinking') {
+          req.onEvent?.({ kind: 'thinking' })
+        } else if (e?.type === 'content_block_delta' && e.delta?.type === 'input_json_delta' && e.delta.partial_json && currentTool !== 'Read') {
+          req.onEvent?.({ kind: 'output', text: e.delta.partial_json })
+        } else if (e?.type === 'content_block_start' && e.content_block?.type === 'tool_use') {
+          currentTool = e.content_block.name ?? ''
+          req.onEvent?.({ kind: 'tool', name: currentTool })
         }
+      } else if (ev.type === 'system' && ev.subtype === 'thinking_tokens' && typeof ev.estimated_tokens === 'number') {
+        req.onEvent?.({ kind: 'thinking', tokens: ev.estimated_tokens })
+      } else if (ev.type === 'assistant' && ev.parent_tool_use_id == null) {
+        const content = ((ev.message as { content?: unknown[] })?.content ?? []) as { type?: string; name?: string; input?: { file_path?: string; pages?: string } }[]
+        for (const c of content) if (c.type === 'tool_use' && c.name === 'Read' && c.input?.file_path) req.onEvent?.({ kind: 'read', file: basename(c.input.file_path), pages: c.input.pages })
       } else if (ev.type === 'result') {
         finalEnvelope = ev
       } else if (ev.type === 'rate_limit_event' && ev.rate_limit_info) {

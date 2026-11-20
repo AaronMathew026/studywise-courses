@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { JobInfo } from '@shared/types'
+import type { JobInfo, JobLive } from '@shared/types'
 
 // Long AI jobs (note/card generation) run here in the main process, so they
 // keep going when the window is closed. Cancelling aborts the signal, which
@@ -12,7 +12,11 @@ export interface JobContext {
   delta: (text: string) => void
   /** Small facts the UI needs early, e.g. the id of the note being written. */
   meta: (m: Record<string, unknown>) => void
+  /** Progress bar and live panel. Updates are throttled. */
+  live?: (patch: Partial<JobLive> & { percent?: number | null }) => void
 }
+
+const emptyLive = (): JobLive => ({ stage: '', log: [], thinkingTokens: 0, thinking: false, preview: null })
 
 type Listener = (ev: { type: 'update'; job: JobInfo } | { type: 'delta'; jobId: string; text: string }) => void
 
@@ -43,6 +47,8 @@ export function startJob<T>(kind: JobInfo['kind'], title: string, run: (ctx: Job
     error: null,
     result: null,
     meta: {},
+    percent: null,
+    live: null,
     controller
   }
   jobs.set(job.id, job)
@@ -57,14 +63,29 @@ export function startJob<T>(kind: JobInfo['kind'], title: string, run: (ctx: Job
     meta: (m) => {
       job.meta = { ...job.meta, ...m }
       emit({ type: 'update', job: publicInfo(job) })
+    },
+    live: ({ percent, ...patch }) => {
+      if (job.status !== 'running') return
+      if (percent !== undefined) job.percent = percent === null ? null : Math.max(job.percent ?? 0, Math.min(1, percent))
+      const set = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<JobLive>
+      job.live = { ...(job.live ?? emptyLive()), ...set }
+      if (set.stage) job.progress = set.stage
+      // At most ~6 updates a second reach the window.
+      if (liveTimer) return
+      liveTimer = setTimeout(() => {
+        liveTimer = null
+        if (job.status === 'running') emit({ type: 'update', job: publicInfo(job) })
+      }, 160)
     }
   }
+  let liveTimer: ReturnType<typeof setTimeout> | null = null
   run(ctx)
     .then((result) => {
       if (job.status === 'cancelled') return
       job.status = 'done'
       job.result = result
       job.progress = 'Done'
+      job.percent = 1
     })
     .catch((e: Error) => {
       if (controller.signal.aborted) {

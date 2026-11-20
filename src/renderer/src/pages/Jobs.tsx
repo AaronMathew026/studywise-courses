@@ -6,6 +6,7 @@ import { api, onEvent } from '../lib/api'
 import { Shell, PageTitle } from '../components/Shell'
 import { Button, Card, Empty, Pill, cx } from '../components/ui'
 import { Markdown } from '../components/Markdown'
+import { JobLive } from '../components/JobLive'
 
 function elapsed(j: JobInfo): string {
   const end = j.finishedAt ? new Date(j.finishedAt).getTime() : Date.now()
@@ -13,7 +14,8 @@ function elapsed(j: JobInfo): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
 }
 
-export function Jobs() {
+/** The Jobs tab in Settings (or a page of its own with `embedded` off). */
+export function Jobs({ embedded = false }: { embedded?: boolean }) {
   const jobs = useStore((s) => s.jobs)
   const go = useStore((s) => s.go)
   const [, tick] = useState(0)
@@ -32,18 +34,11 @@ export function Jobs() {
   }, [])
 
   return (
-    <Shell>
-      <PageTitle
-        eyebrow="Background"
-        title="Jobs"
-        actions={
-          <Button onClick={() => api.jobs.clear().then(() => api.jobs.list()).then((j) => useStore.getState().setJobs(j))}>
-            Clear finished
-          </Button>
-        }
-      >
-        Long AI jobs keep running when you close the window. Studywise stays in the Dock and notifies you when they finish.
-      </PageTitle>
+    <Wrap embedded={embedded}>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-2xl text-muted">Long AI jobs keep running when you close the window. Studywise Courses stays in the Dock and notifies you when they finish.</p>
+        <Button onClick={() => api.jobs.clear().then(() => api.jobs.list()).then((j) => useStore.getState().setJobs(j))}>Clear finished</Button>
+      </div>
       {jobs.length === 0 ? (
         <Empty title="No jobs yet">
           Generate notes or flashcards and they’ll show up here with live progress.
@@ -63,7 +58,7 @@ export function Jobs() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-semibold">{j.title}</div>
-                  <div className="truncate text-[0.88rem] text-muted">{j.error ?? j.progress}</div>
+                  {(j.error || !(j.status === 'running' && j.live)) && <div className="truncate text-[0.88rem] text-muted">{j.error ?? j.progress}</div>}
                 </div>
                 <Pill>{elapsed(j)}</Pill>
                 {j.status === 'running' && (
@@ -89,6 +84,7 @@ export function Jobs() {
                   </Button>
                 )}
               </div>
+              {j.status === 'running' && (j.live || j.percent !== null) && <JobLive job={j} />}
               {j.status === 'running' && live[j.id] && (
                 <div className="relative max-h-40 overflow-hidden rounded-lg bg-surface-2 p-3 text-[0.85rem]">
                   <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-surface-2 to-transparent" />
@@ -99,6 +95,16 @@ export function Jobs() {
           ))}
         </div>
       )}
+    </Wrap>
+  )
+}
+
+function Wrap({ embedded, children }: { embedded: boolean; children: React.ReactNode }) {
+  if (embedded) return <>{children}</>
+  return (
+    <Shell>
+      <PageTitle title="Jobs" />
+      {children}
     </Shell>
   )
 }

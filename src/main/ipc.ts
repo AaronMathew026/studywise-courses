@@ -382,7 +382,7 @@ export const handlers = {
     }),
     recall: h(z.object({ courseId: id, excludeTopicId: id, exclude: z.array(z.string()).max(500).default([]) }), (i) => course.recallCard(i.courseId, i.excludeTopicId, i.exclude)),
     recallReview: h(z.object({ cardId: id, knew: z.boolean() }), (i) => course.recallReview(i.cardId, i.knew)),
-    saveNote: h(z.object({ topicId: id }), (i) => course.topicAsNote(i.topicId)),
+    saveNote: h(z.object({ topicId: id }), (i) => course.syncTopicNote(i.topicId)),
     rename: h(z.object({ id, name: z.string().min(1).max(200) }), (i) => course.renameCourse(i.id, i.name)),
     delete: h(z.object({ id, keepDeck: z.boolean().default(false) }), (i) => course.deleteCourse(i.id, i.keepDeck))
   },

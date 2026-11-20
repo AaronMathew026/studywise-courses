@@ -237,6 +237,10 @@ export const MIGRATIONS: string[] = [
     updated_at TEXT NOT NULL
   );
   CREATE INDEX topics_week ON topics(week_id, position);
+  `,
+  /* 4: topics keep their notes as a note, in a folder per course */ `
+  ALTER TABLE topics ADD COLUMN note_id TEXT REFERENCES notes(id) ON DELETE SET NULL;
+  ALTER TABLE courses ADD COLUMN note_folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL;
   `
 ]
 
