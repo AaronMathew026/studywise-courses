@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, Lightbulb, CheckCircle2, XCircle, CircleDot, BookOpen, Trophy, Brain, ArrowRight, Sparkles, Shuffle, NotebookPen, RotateCcw } from 'lucide-react'
+import { X, Lightbulb, CheckCircle2, XCircle, CircleDot, BookOpen, Trophy, Brain, ArrowRight, Sparkles, Shuffle, NotebookPen, RotateCcw, RefreshCw, HelpCircle } from 'lucide-react'
 import {
   COURSE_QUESTION_LABELS,
   expectedText,
@@ -79,6 +79,7 @@ export function TopicPage({ id }: { id: string }) {
   const [at, setAt] = useState(0)
   const [slots, setSlots] = useState<Record<number, Slot>>({})
   const [notesOpen, setNotesOpen] = useState(false)
+  const [rewriteOpen, setRewriteOpen] = useState(false)
   const progress = useRef<TopicProgress | null>(null)
 
   useEffect(() => {
@@ -183,6 +184,22 @@ export function TopicPage({ id }: { id: string }) {
     })
   }
 
+  /** Ask about a section. Nothing runs until you type a question or pick Simpler/Example/…, and only the section's notes are sent. */
+  const askAbout = (sec: TopicSection) =>
+    openExplain({ ctx: { selection: `${sec.heading}\n\n${sec.notes}` }, title: sec.heading, mode: 'explain' })
+
+  const rewrite = async (instructions: string) => {
+    if (!topic) return
+    try {
+      await api.courses.write({ topicIds: [topic.id], instructions })
+      setRewriteOpen(false)
+      toast('Rewriting this topic. It’ll be ready on the course page.', 'good')
+      go({ name: 'course', id: topic.course_id })
+    } catch (e) {
+      toast(errorText(e), 'bad')
+    }
+  }
+
   // Keys: ↩ continues or submits, t/f for true or false, h for a hint.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -244,13 +261,16 @@ export function TopicPage({ id }: { id: string }) {
             {content.check.length > 0 && <div className={cx('h-2 w-10 rounded-full transition-colors duration-500', step.kind === 'summary' ? 'bg-good' : inCheck ? 'bg-accent' : 'bg-surface-2')} />}
           </div>
         </div>
+        <Button variant="ghost" size="icon" onClick={() => setRewriteOpen(true)} title="Rewrite this topic">
+          <RefreshCw className="size-5" />
+        </Button>
         <Button variant="ghost" size="icon" onClick={() => setNotesOpen(true)} title="All notes so far">
           <BookOpen className="size-5" />
         </Button>
       </div>
 
       <div className="mx-auto mt-7 w-full max-w-[860px] flex-1">
-        {step.kind === 'notes' && <NotesStep key={at} section={content.sections[step.section]} first={step.section === 0} goal={content.goal} onNext={next} />}
+        {step.kind === 'notes' && <NotesStep key={at} section={content.sections[step.section]} first={step.section === 0} goal={content.goal} onNext={next} onAsk={() => askAbout(content.sections[step.section])} />}
 
         {step.kind === 'recall' && <RecallStep key={at} courseId={topic.course_id} topicId={topic.id} onNext={next} />}
 
@@ -368,11 +388,57 @@ export function TopicPage({ id }: { id: string }) {
           ))}
         </div>
       </Modal>
+
+      {rewriteOpen && (
+        <RewriteDialog
+          section={step.kind === 'notes' || (step.kind === 'q' && step.section >= 0) ? content.sections[step.section]?.heading ?? null : null}
+          onClose={() => setRewriteOpen(false)}
+          onRewrite={rewrite}
+        />
+      )}
     </div>
   )
 }
 
-function NotesStep({ section, first, goal, onNext }: { section: TopicSection; first: boolean; goal: string; onNext: () => void }) {
+/** Write the topic again, optionally saying what to change. Replaces its notes, questions and recall cards, and resets progress. */
+function RewriteDialog({ section, onClose, onRewrite }: { section: string | null; onClose: () => void; onRewrite: (instructions: string) => Promise<void> }) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const go = async () => {
+    setBusy(true)
+    await onRewrite(text.trim() ? `What I want changed in this rewrite: ${text.trim()}` : '')
+    setBusy(false)
+  }
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Rewrite this topic?"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="danger" loading={busy} onClick={go}>
+            Rewrite
+          </Button>
+        </>
+      }
+    >
+      <p className="mb-3 text-muted">You get new notes and questions, its recall cards are replaced, and your progress on this topic starts again. This costs about the same as writing it the first time.</p>
+      <Textarea
+        rows={3}
+        autoFocus
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={section ? `Optional: what should be different? e.g. “${section}” was confusing, explain it more simply with an example` : 'Optional: what should be different? e.g. simpler wording, more examples'}
+      />
+      <p className="mt-2 text-[0.85rem] text-muted">Just confused by one bit? Use “I don’t get this” on the notes instead. It only sends that section and costs far less.</p>
+    </Modal>
+  )
+}
+
+function NotesStep({ section, first, goal, onNext, onAsk }: { section: TopicSection; first: boolean; goal: string; onNext: () => void; onAsk: () => void }) {
   const [img, setImg] = useState<string | null>(null)
   const [imgErr, setImgErr] = useState(false)
   const [zoom, setZoom] = useState(false)
@@ -402,9 +468,14 @@ function NotesStep({ section, first, goal, onNext }: { section: TopicSection; fi
           </figure>
         )}
       </div>
-      <Button variant="primary" size="lg" className="self-start" onClick={onNext}>
-        Got it <ArrowRight className="size-4" /> <Kbd className="ml-1 border-current/30">↩</Kbd>
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="primary" size="lg" onClick={onNext}>
+          Got it <ArrowRight className="size-4" /> <Kbd className="ml-1 border-current/30">↩</Kbd>
+        </Button>
+        <Button variant="ghost" size="lg" onClick={onAsk} title="Ask about this section">
+          <HelpCircle className="size-4" /> I don’t get this
+        </Button>
+      </div>
       {zoom && img && (
         <Modal open onClose={() => setZoom(false)} full>
           <img src={img} alt={section.figure?.caption ?? ''} className="mx-auto max-h-full rounded-lg bg-white" />
