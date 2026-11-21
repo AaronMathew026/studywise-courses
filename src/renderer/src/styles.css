@@ -600,6 +600,87 @@ button {
   background: var(--surface-2);
   font-weight: 600;
 }
+/* Obsidian-style callouts: > [!tip] Title (foldable with + or -). */
+.md .callout {
+  --c: var(--accent);
+  --c-soft: var(--accent-soft);
+  margin: 0.8em 0;
+  padding: 0.7em 1em;
+  border-left: 3px solid var(--c);
+  border-radius: 8px;
+  background: var(--c-soft);
+  color: var(--ink);
+}
+.md .callout-tip,
+.md .callout-hint,
+.md .callout-success,
+.md .callout-check,
+.md .callout-done {
+  --c: var(--good);
+  --c-soft: var(--good-soft);
+}
+.md .callout-warning,
+.md .callout-caution,
+.md .callout-attention,
+.md .callout-important,
+.md .callout-question,
+.md .callout-help,
+.md .callout-faq {
+  --c: var(--warn);
+  --c-soft: var(--warn-soft);
+}
+.md .callout-danger,
+.md .callout-error,
+.md .callout-failure,
+.md .callout-bug {
+  --c: var(--bad);
+  --c-soft: var(--bad-soft);
+}
+.md .callout-title {
+  font-weight: 650;
+  color: var(--c);
+  margin: 0 0 0.25em;
+}
+.md details.callout > summary {
+  cursor: pointer;
+}
+.md details.callout:not([open]) > .callout-title {
+  margin: 0;
+}
+.md .callout > :last-child {
+  margin-bottom: 0;
+}
+.md mark {
+  background: color-mix(in oklab, var(--warn) 30%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 0.15em;
+}
+.md .note-link {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dashed currentColor;
+}
+.md .note-props {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 1em;
+  padding: 0.5em 0.8em;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.88em;
+}
+.md .note-props > div {
+  display: grid;
+  grid-template-columns: minmax(80px, 30%) 1fr;
+  gap: 0.8em;
+}
+.md .note-props dt {
+  color: var(--muted);
+}
+.md .note-props dd {
+  margin: 0;
+}
 .md blockquote {
   border-left: 3px solid var(--accent);
   margin: 0.6em 0;

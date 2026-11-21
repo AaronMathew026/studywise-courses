@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   Clock,
   FileText,
   FolderOpen,
@@ -18,13 +19,15 @@ import {
   Presentation,
   RefreshCw,
   RotateCcw,
+  Share2,
   Sparkles,
   Trash2,
   Upload,
   X
 } from 'lucide-react'
 import type { CourseFile, CourseFull, Topic, WeekFull } from '@shared/course'
-import type { JobInfo } from '@shared/types'
+import { planUsageText, type JobInfo } from '@shared/types'
+import { shareWeek } from '../lib/weekShare'
 import { useStore, toast } from '../lib/store'
 import { api, errorText } from '../lib/api'
 import { askText, confirmDialog } from '../lib/dialogs'
@@ -142,7 +145,7 @@ function WeekView({ course: c, week: w, prev, next, reload }: { course: CourseFu
           <>
             {nextUp && (
               <Button variant="primary" onClick={() => go({ name: 'topic', id: nextUp.id })}>
-                <Play className="size-4" /> {nextUp.progress.section > 0 ? 'Continue' : 'Start'} {nextUp.content?.title ?? nextUp.plan.title}
+                <Play className="size-4" /> {nextUp.progress.section > 0 || nextUp.progress.step ? 'Continue' : 'Start'} {nextUp.content?.title ?? nextUp.plan.title}
               </Button>
             )}
             {!planning && w.files.length > 0 && !w.topics.length && w.status !== 'error' && (
@@ -172,6 +175,9 @@ function WeekView({ course: c, week: w, prev, next, reload }: { course: CourseFu
                       {w.topics.length ? 'Plan again' : 'Plan topics'}
                     </MenuItem>
                   )}
+                  <MenuItem icon={<Share2 className="size-4" />} onClick={() => (close(), void shareWeek(w.id))}>
+                    Share this week…
+                  </MenuItem>
                   <MenuItem icon={<Pencil className="size-4" />} onClick={() => (close(), void rename())}>
                     Rename week
                   </MenuItem>
@@ -349,6 +355,9 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
   const go = useStore((s) => s.go)
   const jobs = useStore((s) => s.jobs)
   const job = runningJob(jobs, 'course_topic', 'topicId', t.id)
+  // The last write of this topic since the app started, for its share of the 5-hour limit.
+  const lastWrite = jobs.find((j) => j.kind === 'course_topic' && j.status === 'done' && j.meta?.topicId === t.id)
+  const used = planUsageText(lastWrite?.planUsage, true)
   const writing = t.status === 'writing' || !!job
   const ready = t.status === 'ready' && !!t.content
   const [open, setOpen] = useState(ready)
@@ -378,16 +387,27 @@ function TopicRow({ t, write, saveNote, reload }: { t: Topic; write: (ids: strin
               <Clock className="size-3.5" /> {t.plan.minutes} min
             </span>
           )}
-          {p.done && p.checkTotal ? (
-            <Pill tone="good">
-              Check {p.checkScore}/{p.checkTotal}
+          {!job && lastWrite?.planUsage?.measuring && <span className="text-[0.8rem]">Measuring usage…</span>}
+          {!job && used && (
+            <span className="hidden text-[0.8rem] sm:inline" title={`Writing this topic used ${planUsageText(lastWrite?.planUsage)}`}>
+              Used {used}
+            </span>
+          )}
+          {p.checkTotal ? (
+            <Pill tone={p.checkScore != null && p.checkScore / p.checkTotal >= 0.8 ? 'good' : 'warn'}>
+              Test {p.checkScore}/{p.checkTotal}
             </Pill>
           ) : null}
           {ready ? (
             <>
               <Button size="sm" variant={p.done ? 'ghost' : 'soft'} onClick={() => go({ name: 'topic', id: t.id })}>
-                {p.done ? <RotateCcw className="size-4" /> : <Play className="size-4" />} {p.done ? 'Again' : p.section > 0 ? 'Continue' : 'Start'}
+                {p.done ? <RotateCcw className="size-4" /> : <Play className="size-4" />} {p.done ? 'Again' : p.section > 0 || p.step ? 'Continue' : 'Start'}
               </Button>
+              {!!t.content?.check.length && (
+                <Button size="sm" variant="ghost" onClick={() => go({ name: 'topic', id: t.id, test: true })} title={`Topic test: ${t.content.check.length} questions, from memory`}>
+                  <ClipboardCheck className="size-4" /> Test
+                </Button>
+              )}
               <Menu
                 trigger={(openMenu) => (
                   <Button size="icon" variant="ghost" onClick={openMenu} aria-label="Topic options">

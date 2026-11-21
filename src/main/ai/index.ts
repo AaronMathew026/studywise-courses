@@ -110,12 +110,15 @@ The source file${opts.files.length > 1 ? 's' : ''} (${names}) ${opts.files.lengt
       /* ignore */
     }
   }
+  // The JSON format is the same on every call, so it goes with the fixed
+  // instructions in the system prompt, which Claude caches across calls.
   let schema: Record<string, unknown> | null = null
+  let system = preset.system
   if (mode === 'json') {
     schema = jsonSchemaFor(opts.task)
-    prompt += formatInstructions(opts.task)
+    system += formatInstructions(opts.task)
   }
-  return { system: preset.system, prompt, mode, schema, preset, model, provider }
+  return { system, prompt, mode, schema, preset, model, provider }
 }
 
 function timeoutFor(task: TaskId): number {
@@ -128,14 +131,15 @@ export async function runAI<T = unknown>(opts: RunAIOptions): Promise<RunAIResul
   const sendPrompt = opts.rawPrompt ?? r.prompt
   const timeoutMs = opts.timeoutMs ?? timeoutFor(opts.task)
 
-  const attempt = async (prompt: string, resume?: string): Promise<CliResult> => {
+  /** noFiles: a follow-up that doesn't need the source files again (fixing a reply's format). */
+  const attempt = async (prompt: string, resume?: string, noFiles = false): Promise<CliResult> => {
     const started = Date.now()
     try {
       let res: CliResult
       if (isMock()) {
         const m = mockResponse(opts.task, r.mode, opts.vars ?? {}, prompt)
         emitRateLimit({ status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.42, resetsAt: Math.floor(Date.now() / 1000) + 7200, status: 'allowed' }, seven_day: { utilization: 0.18, resetsAt: Math.floor(Date.now() / 1000) + 4 * 86400, status: 'allowed' } } })
-        if (opts.onEvent) await mockLive(m.text, opts.files ?? [], opts.onEvent, opts.signal)
+        if (opts.onEvent) await mockLive(m.text, noFiles ? [] : (opts.files ?? []), opts.onEvent, opts.signal)
         await mockStream(m.text, opts.onDelta, opts.signal)
         res = {
           text: m.text,
@@ -158,7 +162,7 @@ export async function runAI<T = unknown>(opts: RunAIOptions): Promise<RunAIResul
           jsonSchema: r.mode === 'json' ? r.schema ?? undefined : undefined,
           onDelta: opts.onDelta,
           onEvent: opts.onEvent,
-          files: resume ? undefined : opts.files,
+          files: resume || noFiles ? undefined : opts.files,
           resume,
           persistSession: opts.persistSession,
           timeoutMs,
@@ -174,7 +178,7 @@ export async function runAI<T = unknown>(opts: RunAIOptions): Promise<RunAIResul
           stream: !!(opts.onDelta || opts.onEvent),
           onDelta: opts.onDelta,
           onEvent: opts.onEvent,
-          files: resume ? undefined : opts.files,
+          files: resume || noFiles ? undefined : opts.files,
           resume,
           persistSession: opts.persistSession,
           workDir: opts.workDir,
@@ -214,13 +218,13 @@ export async function runAI<T = unknown>(opts: RunAIOptions): Promise<RunAIResul
     }
   }
 
-  const withRetry = async (prompt: string, resume?: string): Promise<CliResult> => {
+  const withRetry = async (prompt: string, resume?: string, noFiles = false): Promise<CliResult> => {
     try {
-      return await attempt(prompt, resume)
+      return await attempt(prompt, resume, noFiles)
     } catch (e) {
       if (e instanceof CliError && e.kind === 'transient' && !opts.signal?.aborted) {
         await new Promise((res) => setTimeout(res, 1500))
-        return attempt(prompt, resume)
+        return attempt(prompt, resume, noFiles)
       }
       throw e
     }
@@ -243,13 +247,31 @@ export async function runAI<T = unknown>(opts: RunAIOptions): Promise<RunAIResul
       }
       if (!parsed.success) {
         const msg = parsed.error instanceof Error ? parsed.error.message : String(parsed.error)
-        res = await withRetry(`${r.prompt}\n\nYour previous reply could not be used because it did not match the schema:\n${msg.slice(0, 1500)}\nReturn corrected JSON only.`)
-        try {
-          parsed = parse(res)
-        } catch (err) {
-          throw new Error(`${who(r)}'s reply was not valid JSON: ${(err as Error).message}`)
+        const tryParse = (cr: CliResult) => {
+          try {
+            return parse(cr)
+          } catch (err) {
+            return { success: false, error: err } as ReturnType<typeof parse>
+          }
         }
-        if (!parsed.success) throw new Error(`${who(r)}'s reply did not match the expected format: ${parsed.error.message.slice(0, 400)}`)
+        // First, cheaply: send back just the reply and the problem, without the
+        // sources, so nothing is read or written twice. A reply with nothing to
+        // fix (empty or cut off early) goes straight to the full retry.
+        const previous = (res.structured != null ? JSON.stringify(res.structured) : res.text).trim()
+        if (previous.length > 200 && /[[{]/.test(previous)) {
+          res = await withRetry(repairPrompt(previous, msg), undefined, true)
+          parsed = tryParse(res)
+        }
+        // Then the old way: the whole request again, with the problem noted.
+        if (!parsed.success) {
+          res = await withRetry(`${r.prompt}\n\nYour previous reply could not be used because it did not match the schema:\n${msg.slice(0, 1500)}\nReturn corrected JSON only.`)
+          try {
+            parsed = parse(res)
+          } catch (err) {
+            throw new Error(`${who(r)}'s reply was not valid JSON: ${(err as Error).message}`)
+          }
+          if (!parsed.success) throw new Error(`${who(r)}'s reply did not match the expected format: ${parsed.error.message.slice(0, 400)}`)
+        }
       }
       data = parsed.data
     }
@@ -268,6 +290,19 @@ export async function runAI<T = unknown>(opts: RunAIOptions): Promise<RunAIResul
 
   if (opts.noQueue) return exec()
   return aiQueue.run(exec, opts.signal)
+}
+
+/** Ask for a reply's own content back as valid JSON, without the sources. */
+export function repairPrompt(previous: string, problem: string): string {
+  return `This reply was meant to match the JSON format in your instructions, but it doesn't:
+
+<reply>
+${previous.slice(0, 200_000)}
+</reply>
+
+The problem: ${problem.slice(0, 1500)}
+
+Return the same content as corrected JSON only. Keep everything that's already there and only fix what the problem describes.`
 }
 
 function modelLabel(r: RenderedPrompt): string {

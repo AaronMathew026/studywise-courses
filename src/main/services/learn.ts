@@ -4,6 +4,7 @@ import * as repo from '../db/repo'
 import { runAI } from '../ai'
 import { defaultPreset } from '../ai/presets'
 import { cardBlanks } from '@shared/blanks'
+import { shuffleOptions } from '@shared/course'
 import { markInCode, markFillBlankExact, fillBlankFromAi, verdictFor } from '@shared/marking'
 import { ratingForVerdict } from '@shared/sm2'
 import {
@@ -212,7 +213,10 @@ function fromAiItem(item: AiQuestionItem, card: Card): LearnQuestion | null {
     }
     case 'multiple_choice': {
       const p = QuestionPayloads.multiple_choice.safeParse({ question: item.question, options: item.options, correct_index: item.correct_index })
-      return p.success ? { ...base, type: 'multiple_choice', payload: p.data } : null
+      if (!p.success) return null
+      // Shuffle so the right answer's position gives nothing away.
+      const s = shuffleOptions(p.data.options, p.data.correct_index)
+      return { ...base, type: 'multiple_choice', payload: { ...p.data, options: s.options, correct_index: s.answer } }
     }
     case 'free_answer': {
       const p = QuestionPayloads.free_answer.safeParse({ question: item.question || card.front, expected_answer: item.expected_answer })

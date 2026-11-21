@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join, extname, basename } from 'node:path'
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { join, extname, basename, dirname, normalize, sep } from 'node:path'
+import JSZip from 'jszip'
+import { exportObsidian, exportNotion } from '@shared/noteFormats'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import * as repo from './db/repo'
@@ -13,8 +15,10 @@ import * as anki from './anki'
 import { startJob, cancelJob, listJobs, clearFinishedJobs, getJob } from './jobs'
 import * as gen from './services/generate'
 import * as learn from './services/learn'
+import * as updates from './updater'
 import * as explain from './services/explain'
 import * as course from './services/course'
+import * as weekShare from './services/weekShare'
 import { CourseQuestion } from '@shared/course'
 import * as io from './importexport'
 import { backupLibrary, restoreLibrary } from './backup'
@@ -171,6 +175,11 @@ async function importCardsFromFile(file: string, deckId: string): Promise<number
 // ---------------------------------------------------------------------------
 
 export const handlers = {
+  updates: {
+    status: h(none, () => updates.updateStatus()),
+    check: h(none, () => updates.checkForUpdate()),
+    apply: h(none, () => updates.applyUpdate())
+  },
   app: {
     info: h(none, () => ({
       version: app.getVersion(),
@@ -406,6 +415,9 @@ export const handlers = {
       return topics.map((t) => startJob('course_topic', `Topic: ${t.plan.title}`, (ctx) => course.writeTopic(t.id, ctx, i.instructions)))
     }),
     topic: h(z.object({ id }), (i) => course.getTopic(i.id)),
+    rateCard: h(z.object({ topicId: id, front: z.string().min(1), cardId: z.string().optional(), rating: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }), (i) =>
+      course.rateTopicCard(i.topicId, i.front, i.rating, i.cardId)
+    ),
     figure: h(z.object({ fileId: id, page: z.number().int().min(1) }), (i) => course.figureUrl(i.fileId, i.page)),
     progress: h(
       z.object({
@@ -417,7 +429,8 @@ export const handlers = {
           correct: z.number().min(0),
           checkScore: z.number().nullable(),
           checkTotal: z.number().nullable(),
-          lastStudied: z.string().nullable()
+          lastStudied: z.string().nullable(),
+          step: z.object({ kind: z.enum(['notes', 'cards', 'q']), section: z.number().int().min(0), index: z.number().int().min(0).optional() }).nullable().optional()
         })
       }),
       (i) => course.saveProgress(i.topicId, i.progress)
@@ -437,7 +450,23 @@ export const handlers = {
       z.object({ courseId: id, extra_instructions: z.string().max(10000), model_overrides: z.record(z.string(), ModelChoice), thresholds: Thresholds.nullable() }),
       (i) => course.setCourseDeckSettings(i.courseId, { extra_instructions: i.extra_instructions, model_overrides: i.model_overrides, thresholds: i.thresholds })
     ),
-    delete: h(z.object({ id, keepDeck: z.boolean().default(false) }), (i) => course.deleteCourse(i.id, i.keepDeck))
+    delete: h(z.object({ id, keepDeck: z.boolean().default(false) }), (i) => course.deleteCourse(i.id, i.keepDeck)),
+    /** One week as a .studyweek file to send to someone. */
+    exportWeek: h(z.object({ weekId: id }), async (i, ctx) => {
+      const c = course.getCourse(course.getCourseIdForWeek(i.weekId))
+      const w = c.weeks.find((x) => x.id === i.weekId)!
+      const file = await pickSave(winOf(ctx), weekShare.weekFileName(c.name, w.label), [{ name: 'Shared Studywise week', extensions: [weekShare.WEEK_EXT] }])
+      if (!file) return null
+      return { file, ...(await weekShare.exportWeek(i.weekId, file)) }
+    }),
+    /** Pick a shared week (unless given) and say what's in it. */
+    previewWeek: h(z.object({ file: z.string().optional() }).optional(), async (i, ctx) => {
+      const [file] = i?.file ? [i.file] : await pickFiles(winOf(ctx), [{ name: 'Shared Studywise week', extensions: [weekShare.WEEK_EXT] }], false)
+      if (!file) return null
+      return { file, ...(await weekShare.previewWeek(file)) }
+    }),
+    /** Add a shared week to one of your courses, or to a new course. */
+    importWeek: h(z.object({ file: z.string().min(1), courseId: z.string().nullable() }), (i) => weekShare.importWeek(i.file, i.courseId ? { courseId: i.courseId } : { newCourse: true }))
   },
 
   jobs: {
@@ -579,11 +608,7 @@ export const handlers = {
     queue: h(none, () => ({ running: aiQueue.running, waiting: aiQueue.waiting })),
     limits: h(none, () => getUsage()),
     /** One tiny Haiku call, just to get fresh plan-usage numbers. */
-    refreshLimits: h(none, async () => {
-      if (models.activeProvider() !== 'claude') return getUsage()
-      await runAI({ task: 'hint', vars: { front: 'ping', back: 'pong', question: 'ping', type: 'free_answer', previous_hints: '(none)' }, model: { model: 'haiku', effort: null } })
-      return getUsage()
-    })
+    refreshLimits: h(none, () => refreshPlanUsage())
   },
 
   io: {
@@ -629,7 +654,7 @@ export const handlers = {
     importNotes: h(z.object({ files: z.array(z.string()).optional(), folderId: z.string().nullable().optional() }).optional(), async (i, ctx) => {
       const files = i?.files?.length ? i.files : await pickFiles(winOf(ctx), [{ name: 'Notes', extensions: ['md', 'markdown', 'txt', 'zip'] }])
       const ids: string[] = []
-      for (const f of files) for (const n of await io.notesFromFile(f)) ids.push(repo.createNote({ ...n, folder_id: i?.folderId ?? null }).id)
+      for (const f of files) for (const n of await io.notesFromFile(f, paths.attachments)) ids.push(repo.createNote({ ...n, folder_id: i?.folderId ?? null }).id)
       return ids
     }),
     /** Everything in one .studywise file for another computer; progress only if asked. */
@@ -644,12 +669,40 @@ export const handlers = {
       if (!file) return null
       return library.importLibrary(file)
     }),
-    exportNote: h(z.object({ noteId: id }), async (i, ctx) => {
+    /**
+     * One note as Markdown for Obsidian (frontmatter, native syntax, images next
+     * to it in attachments/) or Notion (a .zip with the note and its images when
+     * there are any, ready for Notion's Markdown import; a plain .md otherwise).
+     */
+    exportNote: h(z.object({ noteId: id, format: z.enum(['obsidian', 'notion']).default('obsidian') }), async (i, ctx) => {
       const n = repo.getNote(i.noteId)
-      const file = await pickSave(winOf(ctx), `${safeName(n.title)}.md`, [{ name: 'Markdown', extensions: ['md'] }])
+      const out = i.format === 'notion' ? exportNotion(n) : exportObsidian(n)
+      const zipped = i.format === 'notion' && out.files.length > 0
+      const file = await pickSave(winOf(ctx), `${safeName(n.title)}.${zipped ? 'zip' : 'md'}`, zipped ? [{ name: 'Zip for Notion import', extensions: ['zip'] }] : [{ name: 'Markdown', extensions: ['md'] }])
       if (!file) return null
-      const meta = [n.module && `Module: ${n.module}`, n.type && `Type: ${n.type}`, n.week && `Week: ${n.week}`].filter(Boolean).join('\n')
-      io.writeText(file, `# ${n.title}\n${meta ? `\n${meta}\n` : ''}\n${n.content}`)
+      // The app's image URLs point into its data folder.
+      const local = (url: string) => {
+        const full = join(paths.userData, normalize(decodeURIComponent(url.replace(/^studywise-file:\/\//, ''))))
+        return full.startsWith(paths.userData + sep) && existsSync(full) ? full : null
+      }
+      const fileData = (f: (typeof out.files)[number]) => (f.text !== null ? Buffer.from(f.text) : f.source && local(f.source) ? readFileSync(local(f.source)!) : null)
+      if (zipped) {
+        const zip = new JSZip()
+        zip.file(`${safeName(n.title)}.md`, out.markdown)
+        for (const f of out.files) {
+          const data = fileData(f)
+          if (data) zip.file(f.path, data)
+        }
+        writeFileSync(file, await zip.generateAsync({ type: 'nodebuffer' }))
+      } else {
+        io.writeText(file, out.markdown)
+        for (const f of out.files) {
+          const data = fileData(f)
+          if (!data) continue
+          mkdirSync(join(dirname(file), dirname(f.path)), { recursive: true })
+          writeFileSync(join(dirname(file), f.path), data)
+        }
+      }
       return file
     })
   }
@@ -695,6 +748,16 @@ export function registerIpc(): void {
       })
     }
   }
+}
+
+let pinging: Promise<ReturnType<typeof getUsage>> | null = null
+/** One tiny Haiku call, just to get fresh plan-usage numbers. Calls made while one is running share it. */
+export function refreshPlanUsage(): Promise<ReturnType<typeof getUsage>> {
+  if (models.activeProvider() !== 'claude') return Promise.resolve(getUsage())
+  pinging ??= runAI({ task: 'hint', vars: { front: 'ping', back: 'pong', question: 'ping', type: 'free_answer', previous_hints: '(none)' }, model: { model: 'haiku', effort: null } })
+    .then(() => getUsage())
+    .finally(() => (pinging = null))
+  return pinging
 }
 
 export function broadcast(payload: unknown): void {

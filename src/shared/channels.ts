@@ -1,5 +1,8 @@
 // Generated from src/main/ipc.ts handler names (a unit test checks they match).
 export const CHANNELS = [
+  'updates.status',
+  'updates.check',
+  'updates.apply',
   'app.info',
   'app.showDataFolder',
   'app.openExternal',
@@ -61,6 +64,7 @@ export const CHANNELS = [
   'courses.plan',
   'courses.write',
   'courses.topic',
+  'courses.rateCard',
   'courses.figure',
   'courses.progress',
   'courses.resetProgress',
@@ -73,6 +77,9 @@ export const CHANNELS = [
   'courses.deckSettings',
   'courses.setDeckSettings',
   'courses.delete',
+  'courses.exportWeek',
+  'courses.previewWeek',
+  'courses.importWeek',
   'jobs.list',
   'jobs.get',
   'jobs.cancel',

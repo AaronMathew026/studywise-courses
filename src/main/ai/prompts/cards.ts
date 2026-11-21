@@ -1,6 +1,15 @@
 import type { SeedPreset } from './types'
 
-export const EXAM_FLASHCARDS = `You are making flashcards from the attached PDF of my notes. Everything in the notes, including text inside images, diagrams, tables and graphs, is strictly examinable, except anything the notes themselves mark as not examinable (non-examinable, not assessed, optional, extra reading, "for interest only", "won't be on the exam"): make no cards for that. Use only what is in the notes: don't add outside facts, and don't skip anything else. If you're not sure whether something is examinable, make the card.
+/** Exam flashcards: the rules are in the system prompt, so Claude can cache them across calls. */
+export const EXAM_FLASHCARDS = `Make flashcards from the attached PDF of my notes, following your rules exactly.
+
+{{instructions}}`
+
+const CARD_SYSTEM = `You make flashcards for a university student. Only use facts from the material you are given. Follow the output format exactly.`
+
+const EXAM_SYSTEM = `${CARD_SYSTEM}
+
+You are making flashcards from the attached PDF of my notes. Everything in the notes, including text inside images, diagrams, tables and graphs, is strictly examinable, except anything the notes themselves mark as not examinable (non-examinable, not assessed, optional, extra reading, "for interest only", "won't be on the exam"): make no cards for that. Use only what is in the notes: don't add outside facts, and don't skip anything else. If you're not sure whether something is examinable, make the card.
 
 OUTPUT FORMAT (exact; it gets pasted straight into StudySmarter's text import)
 - Each card is: question/#*#/answer
@@ -47,10 +56,7 @@ COVERAGE
 - Go through the notes in order, start to finish. Every definition, law, equation, symbol, unit, constant, value, list, process, experiment, comparison, example, advantage/disadvantage, graph and diagram gets at least one card.
 - Read all text inside images (labels, annotations, tables, axes) and make cards from it too.
 - If you run out of space, stop at the end of a complete card. When I say "continue", carry on from exactly where you stopped, with no repeats and no restarting.
-
-{{instructions}}`
-
-const CARD_SYSTEM = `You make flashcards for a university student. Only use facts from the material you are given. Follow the output format exactly.`
+`
 
 export const STANDARD_CARDS = `Make flashcards from the source material for the deck "{{deck_name}}".
 
@@ -65,14 +71,14 @@ Rules:
 - term_definition: front is the term, back is a short, exact definition.
 - question_answer: front is a question, back a concise answer. Use "- " bullets for multi-part answers and put the number of bullets in brackets at the end of the question, e.g. "(3)".
 - vocabulary: front is the word or phrase, back is its translation into the second language, with a short usage example where useful.
-- multiple_choice: give 4 options with exactly one correct (set correct: true); "back" holds the correct answer text. Distractors must be plausible.
+- multiple_choice: give 4 options with exactly one correct (set correct: true); "back" holds the correct answer text. Make the right answer impossible to spot from its form: all four options about the same length (within a few words) and with the same level of detail. The right answer must not be the longest, the most precise or complete-sounding, the only one with a qualifier ("usually", "only when", "in most cases"), or the only one that reuses the question's wording. Wrong options are real misconceptions or near misses written just as carefully. No "all/none of the above", no joke options, no two options that mean the same thing.
 - Use $...$ for maths. Put **bold** around the key word(s) of each answer so they can be used for fill-in-the-blank practice.
 - Add 1–2 short tags per card.
 
 {{instructions}}`
 
 export const cardPresets: SeedPreset[] = [
-  { builtin_key: 'cards.exam_style', task: 'generate_cards', name: 'Exam flashcards (my style)', output_mode: 'studysmarter_text', system: CARD_SYSTEM, user_template: EXAM_FLASHCARDS, is_default: true },
+  { builtin_key: 'cards.exam_style', task: 'generate_cards', name: 'Exam flashcards (my style)', output_mode: 'studysmarter_text', system: EXAM_SYSTEM, user_template: EXAM_FLASHCARDS, is_default: true },
   { builtin_key: 'cards.standard', task: 'generate_cards', name: 'Standard cards', output_mode: 'json', system: CARD_SYSTEM, user_template: STANDARD_CARDS, is_default: false },
   {
     builtin_key: 'cards.fix',

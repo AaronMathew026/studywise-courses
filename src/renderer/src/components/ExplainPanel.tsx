@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { keyLabel } from '@shared/keymap'
-import { X, Send, Save, Layers, Sparkles, Baby, Telescope, Lightbulb, Workflow, CircleHelp, Copy } from 'lucide-react'
+import { X, Send, Save, Layers, Sparkles, Baby, Telescope, Lightbulb, Workflow, CircleHelp, Copy, ArrowLeft, NotebookPen } from 'lucide-react'
+import { chooseDialog } from '../lib/dialogs'
 import { useStore, toast } from '../lib/store'
 import { api, streamCall, errorText } from '../lib/api'
 import { useCommands } from '../lib/commands'
@@ -159,6 +160,47 @@ function Panel({ open, closing }: { open: ExplainOpen; closing: boolean }) {
     openGenCards({ text: lastText, deckId: open?.ctx.deckId ?? null })
   }
 
+  /** The whole conversation as a note: your questions, then each answer under its own heading. */
+  const saveToNotes = async () => {
+    const done = msgs.filter((m) => !m.streaming && !m.error && m.content.trim())
+    if (!done.some((m) => m.role === 'assistant')) return
+    const SAVED = 'Saved explanations'
+    const folders = await api.folders.list({ kind: 'note' })
+    const savedFolder = folders.find((f) => f.name === SAVED)
+    const choice = await chooseDialog(
+      'Save to notes',
+      [
+        { value: savedFolder?.id ?? 'new', label: SAVED },
+        ...folders.filter((f) => f.id !== savedFolder?.id).map((f) => ({ value: f.id, label: f.name })),
+        { value: 'none', label: 'No folder' }
+      ],
+      { label: 'Folder', confirmText: 'Save' }
+    )
+    if (choice === null) return
+    try {
+      const folderId = choice === 'new' ? (await api.folders.create({ name: SAVED, kind: 'note' })).id : choice === 'none' ? null : choice
+      const title = open.title ?? 'Explanation'
+      const context = open.ctx.selection ?? open.ctx.question
+      const body = done
+        .map((m) => (m.role === 'user' ? `**Q:** ${m.content.trim()}` : `${m.label ? `## ${m.label}\n\n` : ''}${m.content.trim()}`))
+        .join('\n\n')
+      const content = `${context ? `> ${context.trim().split('\n').slice(0, 6).join('\n> ')}\n\n` : ''}${body}\n`
+      const note = await api.notes.create({ title, content, folder_id: folderId })
+      toast('Saved to your notes', 'good', { label: 'Open', run: () => (close(), useStore.getState().go({ name: 'notes', id: note.id })) })
+      useStore.getState().bump()
+    } catch (e) {
+      toast(errorText(e), 'bad')
+    }
+  }
+
+  // Esc goes back to what you were doing.
+  useEffect(() => {
+    if (closing) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !document.querySelector('[data-modal]') && (e.preventDefault(), e.stopPropagation(), close())
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [closing])
+
   useCommands(
     !closing
       ? {
@@ -177,7 +219,10 @@ function Panel({ open, closing }: { open: ExplainOpen; closing: boolean }) {
   return (
     <aside className={cx('fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-line bg-bg shadow-2xl sm:w-[460px] sm:rounded-l-2xl', closing ? 'slide-out-right pointer-events-none' : 'slide-in-right')}>
       <div className="drag flex items-center justify-between gap-2 px-5 pt-5 pb-3">
-        <div className="min-w-0">
+        <Button variant="ghost" size="sm" onClick={close} className="no-drag -ml-2 shrink-0" title="Back (esc)">
+          <ArrowLeft className="size-4" /> Back
+        </Button>
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-[0.75rem] font-semibold text-accent">
             <Sparkles className="size-3.5" /> {open.action ? open.action.name : 'Explain'}
           </div>
@@ -265,6 +310,9 @@ function Panel({ open, closing }: { open: ExplainOpen; closing: boolean }) {
               Save to card
             </Button>
           )}
+          <Button size="sm" variant="soft" onClick={saveToNotes} disabled={!lastText}>
+            <NotebookPen className="size-4" /> Save to notes
+          </Button>
           <Button size="sm" variant="soft" onClick={makeCards} disabled={!lastText}>
             Make cards from this
           </Button>

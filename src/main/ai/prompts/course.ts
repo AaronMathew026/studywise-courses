@@ -10,15 +10,13 @@ export const coursePresets: SeedPreset[] = [
     task: 'course_outline',
     name: 'Plan a course',
     output_mode: 'json',
-    system: `You plan bite-sized courses from a student's course material. You read everything before planning, you never invent content that isn't in the material, and you reply with JSON only.`,
-    user_template: `You're turning my course material for {{module}} into a course I can learn topic by topic. I'm a {{level}} student. Below is the material for one part of the course, usually one week: lecture transcripts, slides, readings, maybe a revision booklet. Read all of it first.
+    // The fixed rules live in the system prompt so Claude can cache them across calls; the message has what changes.
+    system: `You plan bite-sized courses from a student's course material. You read everything before planning, you never invent content that isn't in the material, and you reply with JSON only.
 
-Files: {{files}}
-
-This step only plans the topics. Don't write any lessons yet.
+The student sends their module, level and the files for one part of the course (usually one week), plus anything already planned. This step only plans the topics. Don't write any lessons yet.
 
 == WHAT A TOPIC IS ==
-- One idea you can learn in one sitting: about 10–20 minutes, 4–8 short sections.
+- One idea you can learn in one sitting: about 10–20 minutes, usually 4–8 short sections. A genuinely complex topic can have up to 10, but don't split things up for the sake of it.
 - Named the way a student would think of it ("Property-based testing", "Why software decays"), not "Lecture 5 part 2".
 - Topics follow the order the course teaches them. If one idea is spread over several lectures, it's still one topic.
 - If a lecture covers three separate ideas, that's three topics. If two lectures say the same thing, that's one topic.
@@ -36,11 +34,17 @@ This step only plans the topics. Don't write any lessons yet.
 - "course": the module title.
 - One entry per topic, ids t1, t2, … in teaching order.
 - "goal": one line, "after this you can …".
-- "sections": 4–8 headings in teaching order, in my note style: mostly questions, or short labels ending in a colon ("What is IFT?", "Rename vs Move:").
+- "sections": usually 4–8 headings (up to 10 for a genuinely complex topic) in teaching order, in my note style: mostly questions, or short labels ending in a colon ("What is IFT?", "Rename vs Move:").
 - "sources": every file the topic draws on, using the exact file name, with "where" saying which part.
 - "needs": ids of earlier topics this builds on (this week's, or earlier weeks' if they're listed below).
 - "stressed": anything the lecturer flagged as important or examinable.
 - "minutes": roughly how long it takes.
+`,
+    user_template: `You're turning my course material for {{module}} into a course I can learn topic by topic. I'm a {{level}} student. Below is the material for one part of the course, usually one week: lecture transcripts, slides, readings, maybe a revision booklet. Read all of it first.
+
+Files: {{files}}
+
+Plan the topics for this part, following your rules.
 
 {{instructions}}`,
     is_default: true
@@ -50,18 +54,16 @@ This step only plans the topics. Don't write any lessons yet.
     task: 'course_topic',
     name: 'Write a topic',
     output_mode: 'json',
-    system: `You write bite-sized lessons for a student from their own course material, in their note style. You only teach what's in the material, you never test something before teaching it, and you reply with JSON only.`,
-    user_template: `You're teaching me one topic from {{module}}. I'm a {{level}} student. The sources for this topic are attached or included below. Here's the course outline:
+    // Fixed rules in the system prompt (cached across calls); the message has the outline, topic and sources.
+    system: `You write bite-sized lessons for a student from their own course material, in their note style. You only teach what's in the material, you never test something before teaching it, and you reply with JSON only.
 
-{{outline}}
-
-Write topic {{topic_id}} ("{{topic_title}}"). Only teach what belongs to that topic; the other topics get their own lessons. Skip anything in the sources marked as not examinable (non-examinable, not assessed, optional, extra reading, "for interest only", "won't be on the exam"): don't teach it, test it or make cards from it. Use the sections the outline lists for this topic, in that order. You can split one if it's too long for a screen.
+The student sends the course outline, which topic to write, and that topic's sources. Write only that topic. Skip anything in the sources marked as not examinable (non-examinable, not assessed, optional, extra reading, "for interest only", "won't be on the exam"): don't teach it, test it or make cards from it. Use the sections the outline lists for this topic, in that order. You can split one if it's too long for a screen.
 
 == HOW IT WORKS ==
-The topic is a run of short sections. Each section is one screen of notes, followed straight away by 2–4 quick questions on what I just read. A mixed check comes at the end. So it goes: read a bit, answer a bit, read a bit, answer a bit.
+The topic is a run of short sections. Each section is one screen of notes, then its flashcards, then 2–4 quick questions on what I just read. So it goes: read a bit, answer a bit, read a bit, answer a bit. The topic test is separate: I take it later, from memory, when I choose.
 
 == SECTIONS ==
-- One idea per section, about one screen: 60–180 words of notes, plus a small table if it helps. If it needs more than that, split it.
+- One idea per section, usually one screen: 60–180 words of notes, plus a small table if it helps. When an idea genuinely needs more (a tricky process, a worked example, a comparison that won't fit), it can run to about two screens (up to roughly 350 words), or carry on in the next section. Don't pad simple ideas to fill space, and keep most sections to one screen.
 - Build up: a section can lean on earlier sections, never on later ones.
 - The first section opens with the main idea in 1–3 plain sentences.
 - Read in order, the sections' notes should make one complete page in my note style, so I could paste the whole thing into Notion.
@@ -104,6 +106,8 @@ The topic is a run of short sections. Each section is one screen of notes, follo
 If a slide has a diagram, graph, table or screenshot that helps, show that slide with "figure": "file" is the attached PDF's file name, "page" is the 1-based page within that attached file (not the number printed on the slide), and "caption" says what to look at in one line.
 Put it on the section it illustrates, at most one per section. Only use pages you've actually looked at, and only when the picture adds something the words don't. No title slides and no slides that are just bullet points. Otherwise "figure" is null.
 
+You can also draw your own diagram inside "notes" when a picture explains it better than words and no slide shows it (how data moves through a pipeline, what's in memory, a before/after). Put it in a \`\`\`svg code block: one self-contained <svg> with a viewBox, simple shapes, arrows and short labels, dark strokes and text on a white background, font-family="sans-serif" and text at least 12px, no scripts, no external images or fonts. Keep it small (under about 40 shapes), at most one per section, and only where it really helps. For a plain flowchart a \`\`\`mermaid block is fine instead.
+
 == QUESTIONS ==
 Every question must be answerable from the notes I've read so far in this topic. Never test something before teaching it.
 
@@ -120,16 +124,24 @@ Types:
 Rules:
 - Mix the types, and never use the same type twice in a row, including across the end of one section and the start of the next.
 - Early sections lean on recognising (mcq, true_false, match). Later sections lean on recall and applying it (fill_blank, wrong_word, order, sort, explain).
-- Wrong options are real misconceptions or near misses, never jokes. They match the right answer in length and style.
+- Multiple choice: make the right answer impossible to spot from its form: all four options about the same length (within a few words) and with the same level of detail. The right answer must not be the longest, the most precise or complete-sounding, the only one with a qualifier ("usually", "only when", "in most cases"), or the only one that reuses the question's wording. Wrong options are real misconceptions or near misses written just as carefully. No "all/none of the above", no joke options, no two options that mean the same thing.
 - Prefer scenario questions to "What is the definition of X?" where you can, e.g. "A test checks that sorting a list twice gives the same result as sorting it once. What kind of property is this?"
 - Every question has a "hint" (a nudge that doesn't give it away) and a "why" (1–2 casual sentences explaining the answer, shown whether I got it right or not).
 - Everything in the outline's "stressed" list for this topic gets tested at least once.
 
 == TOPIC CHECK ==
-"check": after the last section, 5–8 mixed questions across the whole topic, a bit harder than the section questions. Include at least one explain question and at least one scenario.
+"check": the topic test, which I take separately from memory (no notes), maybe days later: 5–8 mixed questions across the whole topic, a bit harder than the section questions. Each must make sense without the notes in front of me. Include at least one explain question and at least one scenario.
 
 == RECALL CARDS ==
-"cards": 8–15 flashcards for this topic. They're used later for spaced repetition, and for surprise recall questions while I'm learning other topics, so each card must make sense completely on its own: no "according to the above" or "in this topic". Short "front", short "back" (bullets are fine). Cover the definitions, key lists, contrasts and anything stressed.
+"cards": 8–15 flashcards for this topic. I see each section's cards straight after its notes and before its questions, so I know the key definitions before I'm tested on them. They're also used later for spaced repetition and surprise recall questions, so each card must make sense completely on its own: no "according to the above" or "in this topic". Short "front", short "back" (bullets are fine). Cover the definitions, key lists, contrasts and anything stressed.
+- "section": the number (1, 2, 3…) of the section that teaches the card. Every key term a section introduces gets a card in that section, so most sections have 1–3 cards.
+- A card only uses what its section, or an earlier one, has taught.
+`,
+    user_template: `You're teaching me one topic from {{module}}. I'm a {{level}} student. The sources for this topic are attached or included below. Here's the course outline:
+
+{{outline}}
+
+Write topic {{topic_id}} ("{{topic_title}}"). Only teach what belongs to that topic; the other topics get their own lessons. Follow your rules.
 
 {{instructions}}`,
     is_default: true

@@ -169,6 +169,19 @@ describe('course service (mock AI)', () => {
     const types = new Set(t2.content!.sections.flatMap((s) => s.questions.map((q) => q.type)))
     expect(types.size).toBe(8)
 
+    // Each section keeps the flashcards Claude tied to it, shown before its questions.
+    expect(t2.content!.sections.map((s) => (s.cards ?? []).map((c) => c.front))).toEqual([
+      ['What is a photoelectron?'],
+      ['What is the work function?', 'What is the threshold frequency?'],
+      ['Does brighter light give faster photoelectrons?']
+    ])
+    // They point at their deck cards, and rating one schedules it (by id, or by front for older topics).
+    const sc = t2.content!.sections[1].cards![0]
+    expect(sc.id).toBeTruthy()
+    expect(svc.rateTopicCard(t2.id, sc.front, 1, sc.id).cardId).toBe(sc.id)
+    expect(svc.rateTopicCard(t2.id, `  ${sc.front} `, 3).cardId).toBe(sc.id)
+    expect((await import('../../src/main/db/repo')).getReviewState(sc.id!)).toBeTruthy()
+
     // No recall until another topic has been started.
     await svc.writeTopic(topics[0].id, ctx())
     expect(svc.recallCard(course.id, topics[0].id)).toBeNull()
@@ -257,5 +270,71 @@ describe('live progress parsing', () => {
     const json = '{"sections":[{"heading":"What is IFT?","notes":"This is \\"the\\" idea.\\nMore"},{"heading":"Rename vs Mo'
     expect(stringValues(json, 'heading')).toEqual({ done: ['What is IFT?'], open: 'Rename vs Mo' })
     expect(stringValues(json, 'notes').done).toEqual(['This is "the" idea.\nMore'])
+  })
+})
+
+describe('multiple-choice shuffling', () => {
+  it('moves the answer index with its option, and keeps every option', async () => {
+    const { shuffleOptions } = await import('@shared/course')
+    const opts = ['right', 'wrong a', 'wrong b', 'wrong c']
+    const seen = new Set<number>()
+    for (let i = 0; i < 200; i++) {
+      const s = shuffleOptions(opts, 0)
+      expect(s.options[s.answer]).toBe('right')
+      expect([...s.options].sort()).toEqual([...opts].sort())
+      seen.add(s.answer)
+    }
+    // Over many shuffles the right answer lands in every position.
+    expect(seen.size).toBe(4)
+  })
+})
+
+describe('sharing a week', () => {
+  it('exports a written week and imports it into a new course and into an existing one', async () => {
+    const share = await import('../../src/main/services/weekShare')
+    const { existsSync: exists } = await import('node:fs')
+    const src = svc.createCourse({ name: 'Friend’s Quantum', level: 'first-year physics' })
+    svc.addWeek(src.id, 'Week 1')
+    const w2 = svc.addWeek(src.id, 'Week 2')
+    await svc.addFiles(w2.id, [resolve('tests/fixtures/photoelectric-lecture.pdf')])
+    await svc.planWeek(w2.id, ctx())
+    const planned = svc.listTopics(src.id)
+    await svc.writeTopic(planned[0].id, ctx())
+    // Their progress shouldn't travel.
+    svc.saveProgress(planned[0].id, { section: 2, done: false, answered: 3, correct: 2, checkScore: null, checkTotal: null, lastStudied: null })
+
+    const file = join(dir, 'week.studyweek')
+    const out = await share.exportWeek(w2.id, file)
+    expect(out).toMatchObject({ course: 'Friend’s Quantum', week: 'Week 2', topics: 3, written: 1, files: ['photoelectric-lecture.pdf'] })
+    expect(out.cards).toBeGreaterThan(0)
+    expect(await share.previewWeek(file)).toEqual(out)
+
+    // Into a brand-new course: same name, the week is its first.
+    const a = await share.importWeek(file, { newCourse: true })
+    const ca = svc.getCourse(a.courseId)
+    expect(ca.name).toBe('Friend’s Quantum')
+    expect(ca.weeks.map((w) => w.label)).toEqual(['Week 2'])
+    const ta = svc.listTopics(a.courseId)
+    expect(ta.map((t) => t.key)).toEqual(['w1t1', 'w1t2', 'w1t3'])
+    expect(ta[0].status).toBe('ready')
+    expect(ta[0].progress.section).toBe(0)
+    expect(ta[0].card_count).toBeGreaterThan(0)
+    const fa = svc.listFiles(a.courseId)
+    expect(fa.map((f) => f.name)).toEqual(['photoelectric-lecture.pdf'])
+    expect(exists(fa[0].path)).toBe(true)
+    // Section flashcards point at the imported deck cards, so rating them works.
+    const sc = ta[0].content!.sections.flatMap((s) => s.cards ?? [])[0]
+    expect(svc.rateTopicCard(ta[0].id, sc.front, 3, sc.id).cardId).toBe(sc.id)
+
+    // Into a course that already has a "Week 2" with the same file: both get numbered, topics follow.
+    const b = await share.importWeek(file, { courseId: src.id })
+    const cb = svc.getCourse(b.courseId)
+    expect(cb.weeks.map((w) => w.label)).toEqual(['Week 1', 'Week 2', 'Week 2 (2)'])
+    const tb = svc.listTopics(src.id).filter((t) => t.week_id === b.weekId)
+    expect(tb.map((t) => t.key)).toEqual(['w3t1', 'w3t2', 'w3t3'])
+    expect(svc.listFiles(src.id).filter((f) => f.week_id === b.weekId).map((f) => f.name)).toEqual(['photoelectric-lecture (2).pdf'])
+    expect(tb[0].plan.sources?.[0]?.file).toBe('photoelectric-lecture (2).pdf')
+    // The original week is untouched.
+    expect(svc.listTopics(src.id).filter((t) => t.week_id === w2.id)[0].progress.section).toBe(2)
   })
 })

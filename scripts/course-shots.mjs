@@ -82,9 +82,16 @@ for (let step = 0; step < 40; step++) {
     await win.getByRole('button', { name: /Got it/ }).click()
     continue
   }
-  if (/Start the check/.test(body)) {
+  if (/Key terms\s*Card \d+ of \d+/.test(body)) {
+    await shot(`cards-${step}`)
+    await win.getByRole('button', { name: /Show answer/ }).click()
+    await shot(`cards-${step}-flipped`, 300)
+    await win.getByRole('button', { name: /Next card|On to the questions/ }).click()
+    continue
+  }
+  if (/Start the test/.test(body)) {
     await shot('check-intro')
-    await win.getByRole('button', { name: /Start the check/ }).click()
+    await win.getByRole('button', { name: /Start the test/ }).click()
     continue
   }
   if (/Quick recall/.test(body)) {

@@ -1,5 +1,12 @@
 import { useEffect, useState, lazy, Suspense } from 'react'
-import { AlertTriangle, X, FileUp, NotebookPen, Layers, Terminal, GraduationCap } from 'lucide-react'
+import { AlertTriangle, X, FileUp, NotebookPen, Layers, Terminal, GraduationCap, Download } from 'lucide-react'
+import type { UpdateStatus } from '@shared/update'
+import { planUsageText } from '@shared/types'
+import { importSharedWeek } from './lib/weekShare'
+
+/** Jobs already announced as done, and those whose plan usage was shown. */
+const announced = new Set<string>()
+const usageShown = new Set<string>()
 import { useStore, toast, type Route } from './lib/store'
 import { api, onEvent, errorText } from './lib/api'
 import { startCommandDispatch, useCommands, runCommand } from './lib/commands'
@@ -123,13 +130,21 @@ export function App() {
             st.openPreview({ cards: r.cards, deckId: jobDeck.get(j.id) ?? null, jobId: j.id, presetName: r.presetName })
             jobDeck.delete(j.id)
           }
-          if (j.status === 'done' && j.kind === 'generate_notes') {
+          // A finished job gets more updates (its usage is measured afterwards); announce it once.
+          const first = j.status === 'done' && !announced.has(j.id)
+          if (first) announced.add(j.id)
+          if (first && j.kind === 'generate_notes') {
             st.bump()
             toast(`${j.title.replace(/^Notes: /, '')}: notes ready`, 'good')
           }
           if (j.kind === 'course_outline' || j.kind === 'course_topic') {
-            st.bump()
-            if (j.status === 'done') toast(j.kind === 'course_outline' ? `${j.title.replace(/^Plan: /, '')}: topics planned` : `${j.title.replace(/^Topic: /, '')} is ready`, 'good')
+            if (j.status !== 'done' || first) st.bump()
+            if (first) toast(j.kind === 'course_outline' ? `${j.title.replace(/^Plan: /, '')}: topics planned` : `${j.title.replace(/^Topic: /, '')} is ready`, 'good')
+          }
+          const used = j.status === 'done' && !usageShown.has(j.id) ? planUsageText(j.planUsage) : null
+          if (used) {
+            usageShown.add(j.id)
+            toast(`${j.title.replace(/^(Topic|Plan|Notes|Flashcards): /, '')} used ${used}`, 'info')
           }
           if (j.status === 'error') toast(`${j.title}: ${j.error}`, 'bad', { label: 'Jobs', run: () => st.go({ name: 'jobs' }) })
         }
@@ -294,6 +309,9 @@ export function App() {
       setDragging(false)
       const all = [...(e.dataTransfer?.files ?? [])].map((f) => window.studywise.pathForFile(f))
       // A library export dropped on the window is imported (added to this library).
+      // A week a friend shared: ask which course it goes in.
+      const week = all.find((p) => /\.studyweek$/i.test(p))
+      if (week) return void importSharedWeek({ file: week })
       const lib = all.find((p) => /\.studywise$/i.test(p))
       if (lib) {
         void confirmDialog('Import this library?', 'Its decks, notes and courses are added to yours. Nothing is replaced.', { confirmText: 'Import' }).then(async (ok) => {
@@ -330,6 +348,7 @@ export function App() {
       {!focus && <GooNav />}
       {focus && <div className="drag h-9 shrink-0" />}
       <SetupBanner />
+      <UpdateBanner />
       <main className="relative min-h-0 flex-1">
         <div key={pageKey} className="page-in absolute inset-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
           {!ready ? (
@@ -393,7 +412,14 @@ function Page({ route }: { route: Route }) {
     case 'week':
       return <WeekPage courseId={route.courseId} weekId={route.weekId} />
     case 'topic':
-      return <TopicPage id={route.id} section={route.section} />
+      return (
+        <TopicPage
+          key={`${route.id}:${route.test ? 'test' : 'learn'}`}
+          id={route.id}
+          section={route.section}
+          test={!!route.test}
+        />
+      )
   }
 }
 
@@ -402,6 +428,10 @@ const isAnki = (p: string) => /\.(apkg|colpkg)$/i.test(p)
 /** Anki packages import straight away as decks; anything else asks what to make. */
 function openFiles(paths: string[]) {
   const st = useStore.getState()
+  // A shared week opened with the app (or dropped on its Dock icon).
+  const week = paths.find((p) => /\.studyweek$/i.test(p))
+  if (week) void importSharedWeek({ file: week })
+  paths = paths.filter((p) => !/\.studyweek$/i.test(p))
   const decks = paths.filter(isAnki)
   const rest = paths.filter((p) => !isAnki(p))
   if (rest.length) st.setDropFiles(rest)
@@ -432,6 +462,63 @@ function OllamaBanner({ problem, onHide }: { problem: string; onHide: () => void
       <button onClick={onHide} className="text-muted hover:text-ink" aria-label="Dismiss">
         <X className="size-4" />
       </button>
+    </div>
+  )
+}
+
+/**
+ * "Update available" when GitHub has new commits for this checkout. Update
+ * pulls them, installs packages if needed and restarts the app.
+ */
+function UpdateBanner() {
+  const [status, setStatus] = useState<UpdateStatus | null>(null)
+  // "Later" hides the banner until more changes arrive.
+  const [dismissedAt, setDismissedAt] = useState(0)
+  useEffect(() => {
+    void api.updates.status().then(setStatus)
+    return onEvent((ev) => ev.type === 'update' && setStatus(ev.status))
+  }, [])
+  if (!status?.supported) return null
+  const busy = status.state === 'updating' || status.state === 'restarting'
+  if (!busy && ((status.behind === 0 && status.state !== 'error') || (dismissedAt > 0 && status.behind <= dismissedAt))) return null
+  const n = status.behind
+  const blocked = status.ahead > 0
+  const update = async () => {
+    try {
+      await api.updates.apply()
+    } catch (e) {
+      toast(errorText(e), 'bad')
+    }
+  }
+  return (
+    <div className="pop-in mx-3 mt-2.5 flex flex-wrap items-center gap-3 rounded-xl border border-accent/30 bg-accent-soft px-4 py-3 sm:mx-4">
+      {busy ? <Spinner className="size-5 shrink-0 text-accent" /> : status.state === 'error' ? <AlertTriangle className="size-5 shrink-0 text-warn" /> : <Download className="size-5 shrink-0 text-accent" />}
+      <div className="min-w-0 flex-1 text-[0.92rem]">
+        <div className="font-semibold">
+          {busy ? status.stage ?? 'Updating…' : status.state === 'error' ? 'The update didn’t finish' : `Update available: ${n} new change${n === 1 ? '' : 's'}`}
+        </div>
+        <div className="truncate text-muted">
+          {busy
+            ? status.state === 'restarting'
+              ? 'The app will close and open again in a few seconds.'
+              : 'Keep the app open.'
+            : status.state === 'error'
+              ? status.error
+              : blocked
+                ? `This copy has ${status.ahead} commit${status.ahead === 1 ? '' : 's'} of its own, so it can’t update automatically. Run git pull in the project folder.`
+                : status.changes.join(' · ')}
+        </div>
+      </div>
+      {!busy && !blocked && (
+        <Button size="sm" variant="ink" onClick={update}>
+          {status.state === 'error' ? 'Try again' : 'Update & restart'}
+        </Button>
+      )}
+      {!busy && (
+        <Button size="sm" variant="ghost" onClick={() => setDismissedAt(Math.max(status.behind, 0) || 1)} aria-label="Hide until there are more changes">
+          Later
+        </Button>
+      )}
     </div>
   )
 }

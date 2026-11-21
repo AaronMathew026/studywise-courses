@@ -16,8 +16,11 @@ export type Route =
   | { name: 'courses' }
   | { name: 'course'; id: string }
   | { name: 'week'; courseId: string; weekId: string }
-  /** section opens the topic at that section's notes instead of where you left off. */
-  | { name: 'topic'; id: string; section?: number }
+  /**
+   * section opens the topic at that section's notes instead of where you left off.
+   * test: take the topic's test (its check questions) instead of learning it.
+   */
+  | { name: 'topic'; id: string; section?: number; test?: boolean }
 
 export interface Toast {
   id: number

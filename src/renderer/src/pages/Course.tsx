@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { SlidersHorizontal, Sparkles, Play, Layers, MoreHorizontal, Pencil, Trash2, Plus, ChevronRight } from 'lucide-react'
+import { SlidersHorizontal, Sparkles, Play, Layers, MoreHorizontal, Pencil, Trash2, Plus, ChevronRight, Download } from 'lucide-react'
+import { importSharedWeek } from '../lib/weekShare'
 import type { CourseFull, WeekFull } from '@shared/course'
 import { useStore, toast } from '../lib/store'
 import { api, errorText } from '../lib/api'
@@ -102,6 +103,9 @@ export function CoursePage({ id }: { id: string }) {
                 <>
                   <MenuItem icon={<Plus className="size-4" />} onClick={() => (close(), setAdding(true))}>
                     Add a week
+                  </MenuItem>
+                  <MenuItem icon={<Download className="size-4" />} onClick={() => (close(), void importSharedWeek({ courseId: id }))}>
+                    Add a shared week…
                   </MenuItem>
                   <MenuItem icon={<SlidersHorizontal className="size-4" />} onClick={() => (close(), void openAiSettings())}>
                     Models &amp; instructions
